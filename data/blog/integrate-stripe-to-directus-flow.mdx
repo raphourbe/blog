@@ -1,0 +1,68 @@
+---
+title: 'Integrate Stripe to Directus' flows'
+date: '2022-10-19'
+lastmod: '2022-10-19'
+tags: ['stripe', 'directus']
+draft: false
+summary: 'Integrating Stripe to a Directus' flow require you to configure your .env file.'
+images: []
+authors: ['default']
+---
+
+# Integrate Stripe to Directus' flows
+
+Integrating Stripe to a Directus' flow is quite simple. However, it is not obvious since 
+it is not explained how to make use of nodejs modules inside flows.
+
+The answer is in this [github discussion](https://github.com/directus/directus/discussions/15886#discussioncomment-3805119).
+
+You just have to add : `FLOWS_EXEC_ALLOWED_MODULES=stripe,` in the `.env` file of directus.
+
+Once you have done this, you can make use of the **Run Script** operation in Flow like that:
+
+````js
+module.exports = async function(data) {
+  const stripe = require('stripe')('sk_test_something');
+  
+  // create a customer in Stripe
+  const customer = await stripe.customers.create({
+    email: data.read_user.email,
+	name: data.read_user.firstName,
+	metadata: {directusId: data.read_user.id}
+  })
+}
+```
+
+In this example, I use stripe to create a stripe's customer. After the flow is triggered, I have created an operation 
+**"Read data"** that I have named `read_user`. Then you can access it in the next operation using `data.read_user`.
+
+![img example of flow](/img/directus_flow_use_stripe.png)
+
+::: info
+
+For information, when you use `data` in a run script for the function, it gives you all the payloads from the previous
+operations of the actual flow.
+
+Something like that:
+
+```js
+{
+  '$trigger': {
+    payload: {
+	   variable: "something"
+	},
+    keys: [0],
+  },
+  "$last": {
+    // informations of the last operation
+  },
+  read_user: {
+    // the payload of the operation named "read_user"
+  },
+  ...
+}
+```
+
+Notice that for the trigger, you have to access it with data["$trigger"].
+
+:::

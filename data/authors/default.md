@@ -1,16 +1,13 @@
 ---
-name: Tails Azimuth
+name: Raphael Becanne
 avatar: /static/images/avatar.png
-occupation: Professor of Atmospheric Science
-company: Stanford University
-email: address@yoursite.com
-twitter: https://twitter.com/Twitter
-linkedin: https://www.linkedin.com
+occupation: CTO
+company: PrimeView
+email: rbecanne@primeview.fr
+linkedin: https://www.linkedin.com/in/raphaelbecanne/
 github: https://github.com
 ---
 
-Tails Azimuth is a professor of atmospheric sciences at the Stanford AI Lab. His research interests includes complexity modelling of tailwinds, headwinds and crosswinds.
+Imrovised CTO at PrimeView, I manage all the tech' aspects.
 
-He leads the clean energy group which develops 3D air pollution-climate models, writes differential equation solvers, and manufactures titanium plated air ballons. In his free time he bakes raspberry pi.
-
-Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed neque elit, tristique placerat feugiat ac, facilisis vitae arcu. Proin eget egestas augue. Praesent ut sem nec arcu pellentesque aliquet. Duis dapibus diam vel metus tempus vulputate.
+I mainly develop the softwares we use to handle our activity of financial advisors for big companies.
