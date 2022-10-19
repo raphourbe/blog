@@ -5,7 +5,7 @@ const siteMetadata = {
   description: 'A blog describing the problems I had to take care of as a CTO in a SME.',
   language: 'en-us',
   theme: 'system', // system, dark or light
-  siteUrl: 'https://blog-lyart-eta.vercel.app',
+  siteUrl: 'https://blog-raphourbe.vercel.app',
   siteRepo: 'https://github.com/raphourbe/blog',
   siteLogo: '/static/images/logo.png',
   image: '/static/images/github_profile.webp',
