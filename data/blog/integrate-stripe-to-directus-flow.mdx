@@ -1,7 +1,7 @@
 ---
 title: "Integrate Stripe to Directus' flows"
 date: '2022-10-19'
-lastmod: '2022-10-18'
+lastmod: '2022-10-20'
 tags: ['stripe', 'directus']
 draft: false
 summary: "Integrating Stripe to a Directus' flow require you to configure your .env file."
@@ -14,8 +14,11 @@ Integrating Stripe to a Directus' flow is quite simple. However, it is not obvio
 it is not explained (yet?) how to make use of nodejs modules inside flows.
 
 The answer is in this [github discussion](https://github.com/directus/directus/discussions/15886#discussioncomment-3805119).
+Directus makes use of [vm2](https://github.com/patriksimek/vm2) which: "is a sandbox that can run untrusted code
+with whitelisted Node's built-in modules. Securely!"
 
-You just have to add : `FLOWS_EXEC_ALLOWED_MODULES=stripe,` in the `.env` file of directus.
+So, you just have to allow stripe to run in Flows by adding: `FLOWS_EXEC_ALLOWED_MODULES=stripe,`
+in the `.env` file of directus.
 
 Once you have done this, you can make use of the **Run Script** operation in Flow like that:
 
