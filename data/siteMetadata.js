@@ -1,7 +1,7 @@
 const siteMetadata = {
   title: 'Adventures of a CTO',
   author: 'Raphaël Becanne',
-  headerTitle: 'TailwindBlog',
+  headerTitle: 'Adventures of a self-named CTO',
   description: 'A blog describing the problems I had to take care of as a CTO in a SME.',
   language: 'en-us',
   theme: 'system', // system, dark or light
