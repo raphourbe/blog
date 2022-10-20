@@ -26,15 +26,16 @@ So you need to create two extension to properly read Stripe webhooks. One is a c
 will retrieve the raw body for you. The second is a custom endpoint to listen to Stripe Webhook 
 and act accordingly. So your directus folder might look like:
 
-    .
-    ├── extensions                          # All your extensions
-        ├── endpoints                       # Listener for the Stripe webhooks
-        |   └── stripe-webhook
-        |       └── index.js
-        └── hooks                           # Your custom hook using a middleware to retrieve the raw request body
-            └── stripe-webhook-middleware
-                └── index.js
-
+```
+.
+├── extensions                          # All your extensions
+    ├── endpoints                       # Listener for the Stripe webhooks
+    |   └── stripe-webhook
+    |       └── index.js
+    └── hooks                           # Your custom hook using a middleware to retrieve the raw request body
+        └── stripe-webhook-middleware
+            └── index.js
+```
 
 # Create a custom hook
 
