@@ -8,6 +8,6 @@ linkedin: https://www.linkedin.com/in/raphaelbecanne/
 github: https://github.com
 ---
 
-Self-made and self-named CTO at [PrimeView](https://www.primeview.fr). I manage all the tech' aspects there.
+Self-made and self-proclaimed CTO at [PrimeView](https://www.primeview.fr). I manage all the tech' aspects there.
 
 I mainly develop the softwares we use to handle our activity of financial advisors for big companies.
