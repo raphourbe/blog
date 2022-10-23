@@ -1,0 +1,56 @@
+---
+title: 'Nginx configuration when Directus and the frontend are not on the same server'
+date: '2022-10-22'
+lastmod: '2022-10-22'
+tags: ['directus', 'nginx', 'CORS']
+draft: true
+summary: 'When Directus and the frontend are not on the same server, you have to take care of the Cross-Orgin (CORS) problem by handling Nginx configuration.'
+authors: ['default']
+---
+
+# The main problem
+
+On version 9.18 of a self-hosted Directus, if your frontend is not on the same server as Directus,
+you have to configure a few things to allow [CORS](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS)
+requests.
+
+If you only follow the actual Directus documentation, you might end up getting the "preflight"
+request error like this.
+
+![img Preflight error](/static/images/cors-policy-error-preflight.webp)
+
+However, even when properly configuring the parameters in the `.env` file of Directus,
+I have noticed that I still had a problem on this level. Even when declaring to Directus
+the address of my frontend as approved, I ended up having an error in production
+because of the "preflight" request. [More information here](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS#functional_overview)
+and on the [OPTIONS page](https://developer.mozilla.org/fr/docs/Web/HTTP/Methods/OPTIONS#requ%C3%AAte_de_pr%C3%A9-v%C3%A9rification_cross-origin_cors).
+
+> Additionally, for HTTP request methods that can cause side-effects on server data
+> (in particular, HTTP methods other than GET, or POST with certain MIME types),
+> the specification mandates that browsers "preflight" the request, soliciting
+> supported methods from the server with the HTTP OPTIONS request method, and then,
+> upon "approval" from the server, sending the actual request.
+
+So, if I understood properly, the problem was that Directus did not inform me with this request the websites that
+are allowed to access the data.
+
+However, even when adding the OPTIONS method in the Directus configuration the problem persisted.
+
+In order to fix this issue, I configured Nginx to send for my Directus backend
+the required parameters everytime a request was made.
+
+# Configuration of Directus
+
+In the `.env` file, you add the two main ingredients for our matter: the `OPTIONS` method
+and the `X-PINGOTHER` allowed header.
+For the other elements, I followed what is described in the
+[Directus documentation](https://docs.directus.io/self-hosted/config-options.html#cors):
+
+```
+CORS_ENABLED=true
+CORS_ORIGIN=true
+CORS_METHODS=GET,POST,PATCH,DELETE,OPTIONS
+CORS_ALLOWED_HEADERS=Content-Type,Authorization,X-PINGOTHER
+CORS_EXPOSED_HEADERS=Content-Range
+CORS_CREDENTIALS=true
+```

@@ -1,29 +1,29 @@
 ---
-title: "Listen to Stripe webhooks with Directus."
+title: 'Listen to Stripe webhooks with Directus.'
 date: '2022-10-20'
-lastmod: '2022-10-20'
-tags: ['stripe', 'directus']
+lastmod: '2022-10-23'
+tags: ['directus', 'stripe']
 draft: false
-summary: "To listen to Stripe webhooks, you need to create a custom endpoint and a custom hook."
+summary: 'To listen to Stripe webhooks, you need to create a custom endpoint and a custom hook.'
 authors: ['default']
 ---
 
-# Context
+## Context
 
-In order to listen to Stripe webhooks, you need to verify that the current request 
-comes from Stripe by [checking the signature in the header](https://stripe.com/docs/webhooks/signatures). 
+In order to listen to Stripe webhooks, you need to verify that the current request
+comes from Stripe by [checking the signature in the header](https://stripe.com/docs/webhooks/signatures).
 Then you can read the body of the request, do what you need to and send a proper response to Stripe.
 
 However, to verify the signature using: `stripe.webhooks.constructEvent(request.body, sig, endpointSecret);`
 as mentioned in the documentation, you need to have request.body that is the raw request body. Otherwise
 you will end up with this error:
 
-> Webhook signature verification failed. No signatures found matching the expected signature for payload. 
-> Are you passing the raw request body you received from Stripe? 
+> Webhook signature verification failed. No signatures found matching the expected signature for payload.
+> Are you passing the raw request body you received from Stripe?
 > https://github.com/stripe/stripe-node#webhook-signing
 
 So you need to create two extension to properly read Stripe webhooks. One is a custom hook that
-will retrieve the raw body for you. The second is a custom endpoint to listen to Stripe Webhook 
+will retrieve the raw body for you. The second is a custom endpoint to listen to Stripe Webhook
 and act accordingly. So your directus folder might look like:
 
 ```
@@ -37,100 +37,95 @@ and act accordingly. So your directus folder might look like:
             └── index.js
 ```
 
-# Create a custom hook
+## Create a custom hook
 
 To create a custom hook, use the [tool to create a Directus extension](https://docs.directus.io/extensions/creating-extensions.html)
 as mentioned in the documentation.
 
-Then add this to create the hook. The solution comes 
-[from here](https://github.com/directus/directus/discussions/8633#discussioncomment-1844107) 
+Then add this to create the hook. The solution comes
+[from here](https://github.com/directus/directus/discussions/8633#discussioncomment-1844107)
 and still works with Directus 9.18.
 
 ```js
 // index.js
-const express = require("express");
+const express = require('express')
 
 module.exports = function registerHook({ init }) {
-  init("middlewares.before", async function ({ app }) {
+  init('middlewares.before', async function ({ app }) {
     app.use(
       express.json({
         verify: (req, res, buf) => {
           // Change the path to your endpoint, for example: /stripe-webhook
-          if (req.originalUrl.startsWith("/path/to/endpoint")) {
-            req.rawBody = buf.toString();
+          if (req.originalUrl.startsWith('/path/to/endpoint')) {
+            req.rawBody = buf.toString()
           }
         },
       })
-    );
-  });
-};
+    )
+  })
+}
 ```
 
-This will transform every request going to your endpoint `/path/to/endpoint` and add a rawBody 
+This will transform every request going to your endpoint `/path/to/endpoint` and add a rawBody
 that Stripe will be able to use.
 
-# Create a custom endpoint
+## Create a custom endpoint
 
-Once you have your custom hook, you just have to adapt Stripe code example 
+Once you have your custom hook, you just have to adapt Stripe code example
 to read req.rawBody and not req.body.
 
 For example, following the [quickstart from Stripe](https://stripe.com/docs/webhooks/quickstart):
 
 ```js
 export default (router, { services, exceptions }) => {
-  const { ItemsService } = services;
-  const { ServiceUnavailableException } = exceptions;
+  const { ItemsService } = services
+  const { ServiceUnavailableException } = exceptions
 
-  const stripe = require("stripe")(
-    "sk_test_SOMETHINGSECRET"
-  );
-  const endpointSecret =
-    "whsec_SOMETHINGSECRET";
+  const stripe = require('stripe')('sk_test_SOMETHINGSECRET')
+  const endpointSecret = 'whsec_SOMETHINGSECRET'
 
-  router.post("/", async (req, res) => {
+  router.post('/', async (req, res) => {
     // MAIN DIFFERENCE WITH STRIPE EXAMPLE
-    let event = req.rawBody;
-    
+    let event = req.rawBody
+
     // Only verify the event if you have an endpoint secret defined.
     // Otherwise use the basic event deserialized with JSON.parse
     if (endpointSecret) {
       // Get the signature sent by Stripe
-      const signature = req.headers["stripe-signature"];
+      const signature = req.headers['stripe-signature']
       try {
         event = stripe.webhooks.constructEvent(
           req.rawBody, // MAIN DIFFERENCE WITH STRIPE EXAMPLE
           signature,
           endpointSecret
-        );
+        )
       } catch (err) {
-        console.log(`⚠️  Webhook signature verification failed.`, err.message);
-        return res.sendStatus(400);
+        console.log(`⚠️  Webhook signature verification failed.`, err.message)
+        return res.sendStatus(400)
       }
     }
 
     // Handle the event
     switch (event.type) {
-      case "payment_intent.succeeded":
-        const paymentIntent = event.data.object;
-        console.log(
-          `PaymentIntent for ${paymentIntent.amount} was successful!`
-        );
+      case 'payment_intent.succeeded':
+        const paymentIntent = event.data.object
+        console.log(`PaymentIntent for ${paymentIntent.amount} was successful!`)
         // Then define and call a method to handle the successful payment intent.
         // handlePaymentIntentSucceeded(paymentIntent);
-        break;
-      case "payment_method.attached":
-        const paymentMethod = event.data.object;
+        break
+      case 'payment_method.attached':
+        const paymentMethod = event.data.object
         // Then define and call a method to handle the successful attachment of a PaymentMethod.
         // handlePaymentMethodAttached(paymentMethod);
-        break;
+        break
       default:
         // Unexpected event type
-        console.log(`Unhandled event type ${event.type}.`);
-        console.log(`The data object of the event: ${event.data.object}`);
+        console.log(`Unhandled event type ${event.type}.`)
+        console.log(`The data object of the event: ${event.data.object}`)
     }
 
     // Return a 200 response to acknowledge receipt of the event
-    res.sendStatus(200);
-  });
-};
+    res.sendStatus(200)
+  })
+}
 ```

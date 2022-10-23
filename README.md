@@ -1,7 +1,8 @@
 # Purpose of this blog
 
 ## Giving back
-I am a huge user of Open Source solutions. Almost everything that I have built so far are based on Open Source technologies: Next.js, Directus, Flask, Postgresql, plotly, etc. 
+
+I am a huge user of Open Source solutions. Almost everything that I have built so far are based on Open Source technologies: Next.js, Directus, Flask, Postgresql, plotly, etc.
 
 I have also, as many developers out there, spent hours reading and watching free 'how to' guides. Hence, it is time to thank all these people that have helped me one way or another, by giving back to the community.
 
