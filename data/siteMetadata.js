@@ -5,14 +5,14 @@ const siteMetadata = {
   description: 'A blog describing the problems I had to take care of as a CTO in a SME.',
   language: 'en-us',
   theme: 'system', // system, dark or light
-  siteUrl: 'https://blog-raphourbe.vercel.app',
+  siteUrl: 'https://rphl.dev',
   siteRepo: 'https://github.com/raphourbe/blog',
   siteLogo: '/static/images/logo.png',
   image: '/static/images/github_profile.webp',
   socialBanner: '/static/images/twitter-card.png',
   email: 'rbecanne@primeview.fr',
   github: 'https://github.com',
-  linkedin: 'https://www.linkedin.com',
+  linkedin: 'https://www.linkedin.com/in/raphaelbecanne/',
   locale: 'en-US',
   analytics: {
     // If you want to use an analytics provider you have to add it to the
