@@ -48,19 +48,20 @@ const siteMetadata = require('../data/siteMetadata')
                 if (page.search('.md') >= 1 && fs.existsSync(page)) {
                   const source = fs.readFileSync(page, 'utf8')
                   const fm = matter(source)
-                  return `
+                  if (fm.data?.lastmod) {
+                    return `
                         <url>
                             <loc>${siteMetadata.siteUrl}${route}</loc>
-                            <lastmod>${fm.data.lastmod}}</lastmod>
+                            <lastmod>${fm.data.lastmod}</lastmod>
                         </url>
                     `
-                } else {
-                  return `
-                        <url>
-                            <loc>${siteMetadata.siteUrl}${route}</loc>
-                        </url>
-                    `
+                  }
                 }
+                return `
+                        <url>
+                            <loc>${siteMetadata.siteUrl}${route}</loc>
+                        </url>
+                    `
               })
               .join('')}
         </urlset>
