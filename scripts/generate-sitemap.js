@@ -29,14 +29,12 @@ const siteMetadata = require('../data/siteMetadata')
                   if (fm.data.draft) {
                     return
                   }
-                  if (fm.data.canonicalUrl) {
-                    return
-                  }
                 }
                 const path = page
                   .replace('pages/', '/')
                   .replace('data/blog/', '/blog/')
                   .replace('public/', '/')
+                  .replace(/(\d{4})-(\d{2})-(\d{2})-/g, '') // replace dt from blog slug
                   .replace('.js', '')
                   .replace('.tsx', '')
                   .replace('.mdx', '')
@@ -44,14 +42,25 @@ const siteMetadata = require('../data/siteMetadata')
                   .replace('/feed.xml', '')
                 const route = path === '/index' ? '' : path
 
-                if (page.search('pages/404.') > -1 || page.search(`pages/blog/[...slug].`) > -1) {
+                if (page.search('pages/404.') > -1) {
                   return
                 }
-                return `
+                if (page.search('.md') >= 1 && fs.existsSync(page)) {
+                  const source = fs.readFileSync(page, 'utf8')
+                  const fm = matter(source)
+                  return `
+                        <url>
+                            <loc>${siteMetadata.siteUrl}${route}</loc>
+                            <lastmod>${fm.data.lastmod}}</lastmod>
+                        </url>
+                    `
+                } else {
+                  return `
                         <url>
                             <loc>${siteMetadata.siteUrl}${route}</loc>
                         </url>
                     `
+                }
               })
               .join('')}
         </urlset>
