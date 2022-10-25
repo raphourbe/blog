@@ -1,0 +1,160 @@
+---
+title: 'Binding Directus auth and Nextjs middleware to protect your app'
+date: '2022-10-25'
+lastmod: '2022-10-25'
+tags: ['directus', 'nextjs', 'middleware']
+draft: false
+summary: 'Protecting part of a Nextjs app is easy thanks to the middleware. I will show some custom logic.'
+authors: ['default']
+canonicalUrl: https://rphl.dev/blog/directus-nextjs-middleware-protection
+---
+
+## The main problem
+
+I have parts of my SaaS app that need to be undisclosed for users who are not suscribded yet.
+Hence, I have decided to use Next.js middleware to avoid doing multiple authorization checks everywhere in my app.
+
+However, the authentication process from Directus
+[only returns three parameters](https://docs.directus.io/reference/authentication.html#response-attributes)
+(`access_token`, `expires` and `refresh_token`), and You cannot modify that.
+So I needed to implement some fetching to check if the user did pay.
+
+This is not a tough problem to solve, however, here is how you could implement the middleware in Next.js
+based on my experience with the matter.
+
+<div className="px-4 pt-4 pb-2 mb-4 text-orange-700 bg-orange-100 rounded-lg dark:bg-orange-200 dark:text-orange-800">
+  <p className="m-0 pb-0 text-lg font-medium">Information</p>
+  <p className="m-0 pt-0 text-lg">
+    I do understand that the middleware needs to be fast. However, the middleware is running only
+    one fetch function for the logged part of the app. Plus, this fetch would happen in the app
+    anyway.
+  </p>
+</div>
+
+<TOCInline toc={props.toc} asDisclosure toHeading={3} />
+
+## Code example
+
+### Simple implementation
+
+Let's say I have a role in Directus that is "Customer". I have a `customer_details` table
+with a `subscribed` boolean column, that is linked to my `directus_users` table with a
+one to one relationship (see [documentation](https://docs.directus.io/configuration/data-model/relationships.html#one-to-one-o2o)
+for the implementation).
+
+The implementation could be something like this to adapt to your convenience.
+
+```jsx:middleware.js
+import { NextResponse } from 'next/server'
+import { gql } from 'graphql-request'
+
+export default withAuth(async function middleware(req) {
+  const isSubscribed = async (token) => {
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    }
+    const userDetails = await fetch('https://yourDirectusApi/graphql', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        gql`
+          query {
+            customer_details(
+                filter: { user: { id: { _eq: "$CURRENT_USER" } } }
+            ) {
+                subscribed
+              }
+            }
+          }
+        `,
+      }),
+    })
+
+    if (userDetails.data.subscribed) return true
+    return false
+  }
+
+  // you have to adapt this part to how you store your user token
+  // I show a Nextauth implementation under this example.
+  const token = req.headers.get('Authorization')
+  const url = req.nextUrl
+
+  if (await isSubscribed(token)) {
+    return NextResponse.next()
+  }
+
+  // the user is not subscribed properly, we redirect her to the user panel
+  // where she can subscribe.
+  url.pathname = '/user/details'
+
+  return NextResponse.rewrite(new URL(url, req.url))
+})
+
+// We only run the middleware for the dashboard part of the app for now.
+export const config = {
+  matcher: ['/dashboard/:path*', '/publications/:path*'],
+}
+```
+
+### Next-auth implementation
+
+I am using Next-auth in my project, so I also include it here with their
+[withAuth implementation](https://next-auth.js.org/configuration/nextjs#advanced-usage).
+
+```jsx:middelware.js
+import { NextResponse } from 'next/server'
+import { withAuth } from 'next-auth/middleware'
+import { gql } from 'graphql-request'
+
+export default withAuth(async function middleware(req) {
+  // function that verifies if the user is subscribed properly.
+  // see below for information about the token
+  const isSubscribed = async () => {
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${req.nextauth.token.accessToken}`,
+    }
+    const userDetails = await fetch('https://yourDirectusApi/graphql', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        gql`
+          query {
+            customer_details(
+                filter: { user: { id: { _eq: "$CURRENT_USER" } } }
+            ) {
+                subscribed
+              }
+            }
+          }
+        `,
+      }),
+    })
+
+    if (userDetails.data.subscribed) return true
+    return false
+  }
+
+  const url = req.nextUrl
+
+  if (await isSubscribed()) {
+    return NextResponse.next()
+  }
+
+  // the user is not subscribed properly, we redirect her to the user panel
+  // where she can subscribe.
+  url.pathname = '/user/details'
+
+  return NextResponse.rewrite(new URL(url, req.url))
+})
+
+// We only run the middleware for the dashboard part of the app for now.
+export const config = {
+  matcher: ['/dashboard/:path*', '/publications/:path*'],
+}
+```
+
+In this example, you can see that I call `req.nextauth.token.accessToken`. The reason is
+in the configuration of my `[...nextauth].js` file. I will do a post specially on configuring
+next-auth with directus.
