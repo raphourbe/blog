@@ -1,0 +1,287 @@
+---
+title: 'Using Directus js-sdk in a Next.js app with several useSWR calls.'
+date: '2022-10-26'
+lastmod: '2022-10-26'
+tags: ['directus', 'next', 'useswr']
+draft: false
+summary: 'Building a Next.js app with Directus is quite smooth. However, the integration with directus sdk was a little tricky, especially with multiple useSWR calls.'
+authors: ['default']
+canonicalUrl: https://rphl.dev/blog/directus-sdk-nextjs-several-useswr
+---
+
+For your information, this post comes from [an answer (see Discussion #4981)](https://github.com/directus/directus/discussions/4981)
+I made on github.
+
+Tested with directus 9.16.1, directus js-sdk 10.1.4 and Next.js 12.2.2.
+
+## Main context
+
+We want to leverage [Directus js-sdk](https://docs.directus.io/reference/sdk.html) to manage the refresh token
+part + the authentication of our Next.js app. However, when you have multiple `useSWR` calls to fetch your data,
+the token rotation might interfere with them.
+
+The method described below is highly inspired by this example that I have
+adapted from [Mike Alche's blog](https://www.mikealche.com/software-development/how-to-implement-authentication-in-next-js-without-third-party-libraries)
+
+<TOCInline toc={props.toc} asDisclosure toHeading={3} />
+
+## Creating an AuthProvider using Directus js-sdk
+
+I have a `directus.js` file that is quite simple:
+
+```jsx:directus.js
+import { Directus } from "@directus/sdk";
+
+const directus = new Directus(process.env.NEXT_PUBLIC_API);
+
+export default directus;
+```
+
+Then I have created an AuthProvider component like this:
+
+```jsx:auth.js
+import React, { createContext, useState, useContext, useEffect } from "react";
+import directus from "../api/directus";
+
+const AuthContext = createContext({});
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const isAuthenticated = !!user;
+
+  useEffect(() => {
+    async function loadUserFromDirectus() {
+      const token = await directus.auth.token;
+      if (token) {
+        const me = await directus.users.me.read();
+        setUser(me);
+      }
+      setLoading(false);
+    }
+    setLoading(true);
+    loadUserFromDirectus();
+  }, []);
+
+  const login = async ({ email, password }) => {
+    setLoading(true);
+    let authenticated;
+    const res = await directus.auth
+      .login({
+        email: email,
+        password: password,
+      })
+      .then(() => {
+        authenticated = true;
+      })
+      .catch((error) => {
+        console.log(error);
+        return error;
+      });
+    if (res?.errors?.length > 0) return res;
+
+    const me = await directus.users.me.read();
+    setUser(me);
+    setLoading(false);
+  };
+
+  const logout = async () => {
+    await directus.auth.logout();
+    setUser(null);
+  };
+
+  const getToken = async () => {
+    await directus.auth.refreshIfExpired().catch((error) => {
+      setUser(null);
+    });
+    const token = await directus.auth.token;
+    if (token) {
+      return token;
+    }
+    setUser(null);
+    return null;
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{ isAuthenticated, user, login, loading, logout, getToken }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+};
+export const useAuth = () => useContext(AuthContext);
+```
+
+I have added a `getToken()` function that can use the `refreshIfExpired()` function of directus.
+So when I use multiple `useSWR()` to retrieve data from directus (I am not always using the sdk to retrieve data),
+I don't have trouble with refreshing token. If no token is retrieved, then user becomes `null`,
+so she is kicked out of the app.
+
+My `_app.js` file is like:
+
+```jsx:_app.js
+import React from "react";
+import { SWRConfig } from "swr";
+import "../styles/globals.css";
+import { AuthProvider } from "../lib/auth";
+
+function MyApp({ Component, pageProps: { ...pageProps } }) {
+  return (
+    <AuthProvider>
+      <SWRConfig
+        value={{
+          revalidateOnMount: true,
+        }}
+      >
+        <Component {...pageProps} />
+      </SWRConfig>
+    </AuthProvider>
+  );
+}
+
+export default MyApp;
+```
+
+## Using useSWR
+
+In a component using a useSWR function it goes like this:
+
+```jsx:some_component.js
+import { useAuth } from "../../../lib/auth";
+import useSWR from "swr";
+import fetchData from "./fetcherHelper";
+
+export default function Publication({ profile }) {
+  const { getToken } = useAuth();
+  const { actualCompo, error, isLoading } = usePublication (
+    getToken,
+    profile
+  );
+  if (error) {
+    if (error.status === 401)
+      return "Loading";
+    return "Error";
+  }
+  else if (isLoading) return "Loading.";
+  return <div>Something</div>;
+}
+
+const usePublication = (getToken, profile) => {
+  const { data, error } = useSWR(
+    "publication/" + profile,
+    (query) => {
+      return fetchData(query, getToken,"publication/" + profile);
+    },
+    {
+      onErrorRetry: (error, key, config, revalidate, { retryCount }) => {
+        // Never retry on 404.
+        if (error.status === 404) return;
+
+        // Only retry up to 5 times.
+        if (retryCount >= 5) return;
+
+        // Retry after 1 seconds.
+        setTimeout(() => revalidate({ retryCount }), 1000);
+      },
+      refreshInterval: 15 * 60 * 1000,
+      revalidateOnFocus: true,
+    }
+  );
+
+  return {
+    publication: data,
+    error: error,
+    isLoading: !data && !error,
+  };
+};
+```
+
+My `fetchData` function looks like this. I use the `getToken()` function in it. So everytime I use my fetcher,
+it checks if it needs to refresh the token.
+
+```jsx:fetchHelper.js
+const pubAPI = process.env.NEXT_PUBLIC_API;
+
+const fetchData = async (query, getToken, urlAdd, variables) => {
+  const token = await getToken();
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  };
+
+  var urlAPI = pubAPI;
+  if (urlAdd !== undefined) urlAPI = urlAPI + urlAdd;
+
+  const res = await fetch(urlAPI, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      query,
+      variables,
+    }),
+  });
+
+  if (!res.ok) {
+    const error = new Error("An error occurred while fetching the data.");
+    // Attach extra info to the error object.
+    error.info = await res.json();
+    error.status = res.status;
+    throw error;
+  }
+
+  const json = await res.json();
+
+  return json;
+};
+
+export default fetchData;
+```
+
+I have set in the directus `.env` file the value: `ACCESS_TOKEN_TTL="1m"` to test this solution.
+Since several `useSWR` functions fire all at the same time, some of them get an error 401 while the first one
+refresh the token.
+
+Using the revalidate function in `useSWR` on error allows you to retry quickly enough and refetch
+with a correct token. I added a "loading" indicator when I get a 401 response from the server
+while refreshing token. If the token has totally expired, the catch after `refrechIfExpired()`
+sets the user value in the AuthProvider becomes `null`.
+
+## Protecting routes
+
+I have a verification that user is always connected, so it will kick the user out of the app if this case happens.
+
+I have done that using a special component that I named SessionLayout. However, you can
+for sure use the middleware of Next.js, as I have shown in this post:
+[Binding Directus auth and Nextjs middleware to protect your app](https://rphl.dev/blog/directus-nextjs-middleware-protection)
+
+```jsx:layout.js
+import React, { Children, cloneElement, useEffect } from "react";
+import { useAuth } from "../../lib/auth";
+import { useRouter } from "next/router.js";
+
+export default function SessionLayout({ children }) {
+  const router = useRouter();
+  const { user } = useAuth();
+  useEffect(() => {
+    if (!user) router.push("/login");
+  }, [user, router]);
+
+  if (user) {
+    return (
+      <Layout>
+        {Children.map(children, (child) => {
+          return cloneElement(child, {
+            ...child.props,
+            user: user,
+          });
+        })}
+      </Layout>
+    );
+  } else {
+    return "Nothing";
+  }
+}
+```
+
+I hope this solution helps. I would be very happy to have information regarding this topic 👍
