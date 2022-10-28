@@ -1,0 +1,241 @@
+---
+title: 'Using Directus with Next-Auth to handle authentication in your frontend.'
+date: '2022-10-28'
+lastmod: '2022-10-28'
+tags: ['directus', 'next-auth', 'next.js']
+draft: false
+summary: 'When using Directus with a frontend in Next.js relying on Next-Auth for authentication, I have chosen to avoid directus sdk.'
+authors: ['default']
+canonicalUrl: https://rphl.dev/blog/nextauth-directus
+---
+
+For your information, you can handle the authentication in your app without Next-Auth, and
+using Directus sdk as shown [here](https://rphl.dev/blog/directus-sdk-nextjs-several-useswr).
+
+The rest of this tutorial has been tested with directus 9.18.2, directus js-sdk 10.1.4,
+and Next.js 12.3.1 and next-auth 4.15.0.
+
+## Main context
+
+When building my SaaS app with Next.js and Directus I had a hard time figuring out how to
+use Next-Auth and Directus sdk for authentication. In the end, I find a solution for both
+of them, but not using them at the same time.
+
+I have already shown how to configure the [Directus sdk method](https://rphl.dev/blog/directus-sdk-nextjs-several-useswr).
+Now I will show you the method I use for my app, which relies on Next-Auth.
+
+<TOCInline toc={props.toc} asDisclosure toHeading={3} />
+
+## Configuration of [...nextauth].js
+
+Please note that directus send you variables that are snake case like: `access_token`. So, to
+keep homogeneity in my app, I transformed them in `accessToken` when storing them.
+
+Also, one big mistake I made at first for this configuration was to use a jwt secret
+that was different from the main `NEXTAUTH_SECRET`.
+
+Something like:
+
+```jsx:[...nextauth].js
+// JSON Web Token Options
+{
+  jwt: {
+    secret: process.env.JWT_SECRET,
+    encryption: true,
+  },
+}
+```
+
+This is not useful and made me unable to use Next.js middleware.
+See [Binding Directus auth and Next.js middleware to protect your app.](https://rphl.dev/blog/directus-nextjs-middleware-protection)
+for how to use Next.js middleware and Next-Auth to secure your app.
+
+Here is my new configuration which handle token rotation.
+
+```jsx:[...nextauth].js
+import NextAuth from "next-auth/next";
+import CredentialsProvider from "next-auth/providers/credentials";
+import { signIn } from "next-auth/react";
+
+const pubAPI = process.env.DIRECTUS_PUBLIC_API;
+
+export const options = {
+  providers: [
+    CredentialsProvider({
+      name: "Credentials",
+      credentials: {
+        email: { label: "Email", type: "text" },
+        password: { label: "Mot de passe", type: "password" },
+      },
+      async authorize(credentials, req) {
+        const payload = {
+          email: credentials.email,
+          password: credentials.password,
+        };
+        const res = await fetch(pubAPI + "auth/login", {
+          method: "POST",
+          body: JSON.stringify(payload),
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+        });
+        const user = await res.json();
+
+        if (!res.ok) {
+          throw new Error("Email ou mot de passe incorrect.");
+        }
+
+        if (res.ok && user) {
+          return user;
+        }
+
+        return null;
+      },
+    }),
+  ],
+  session: {
+    jwt: true,
+  },
+  callbacks: {
+    async jwt({ token, user, account }) {
+      if (account && user) {
+        return {
+          ...token,
+          accessToken: user.data.access_token,
+          expires: Date.now() + user.data.expires,
+          refreshToken: user.data.refresh_token,
+          error: user.data.error,
+        };
+      }
+
+      if (Date.now() < token.expires) {
+        return token;
+      }
+
+      const refreshed = await refreshAccessToken(token);
+      return await refreshed;
+    },
+
+    async session({ session, token }) {
+      session.user.accessToken = token.accessToken;
+      session.user.refreshToken = token.refreshToken;
+      session.user.expires = token.expires;
+      session.user.error = token.error;
+
+      return session;
+    },
+  },
+  secret: process.env.NEXTAUTH_SECRET,
+  pages: {
+    signIn: "/sign-in",
+  },
+  debug: true,
+};
+
+async function refreshAccessToken(token) {
+  try {
+    const response = await fetch(pubAPI + "auth/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: token.refreshToken }),
+      credentials: "include",
+    });
+
+    const refreshedTokens = await response.json();
+
+    if (!response.ok) {
+      signIn();
+    }
+
+    if (response.ok && refreshedTokens) {
+      return {
+        ...token,
+        accessToken: refreshedTokens.data.access_token,
+        expires: Date.now() + refreshedTokens.data.expires,
+        refreshToken: refreshedTokens.data.refresh_token,
+      };
+    }
+  } catch (error) {
+    console.log(
+      new Date().toUTCString() + " Error in refreshAccessToken:",
+      error
+    );
+
+    return {
+      ...token,
+      error: "RefreshAccessTokenError",
+    };
+  }
+}
+
+const nextauthfunc = (req, res) => NextAuth(req, res, options);
+
+export default nextauthfunc;
+```
+
+## Handling token rotation
+
+### The main problem
+
+One of the problem, in my opinion, that made me almost give up on Next-Auth is the
+token rotation. Many times, I wanted a function like `refreshToken()` in my client
+side.
+
+Indeed, when using multiple components, each one with a fetch inside, you might
+end up with the case of this timeline:
+
+- T1: component 1 fetches something
+- T2: time to refresh token -> fetch for refreshing token
+- T3: component 2 fetches something
+- T4: component 1 receives OK response
+- T5: refreshed token received
+- T6: component 2 receives an error
+
+This happened because the server had a new token for my user at the time the request
+for component 2 was received with the former token. Nonetheless, the request (made with
+a `useSWR()` function in my case) kept firing with the former token which was cached
+apparently.
+
+### The solution
+
+The solution to handle the token rotation properly comes partly from
+[this post](https://dev.to/mabaranowski/nextjs-authentication-jwt-refresh-token-rotation-with-nextauthjs-5696).
+
+It is based on two things: first, a component that times the expiration date
+of your token and calls for a refresh before. A catch for 401 errors that might
+still happen during the refresh.
+
+I let you read Mateusz Baranowski's solution for creating a
+`<RefreshTokenHandler setInterval={setInterval} />` component.
+
+For the error processing, since I use SWR for my part, in the error processing I catch 401 errors and
+make them look like the loading of my component.
+
+```jsx:aUserDetailComponent.js
+import { useUserDetails } from "../../api/queries/getUser";
+import FormUserDetail from "./formDetails";
+import { useSession } from "next-auth/react";
+
+export default function UserDetails() {
+  const { data: session, status } = useSession({
+    required: true,
+  });
+  const { userDetails, error, isLoading, mutate } = useUserDetails(
+    session?.user?.accessToken
+  );
+  if (error) {
+    if (error.status === 401) return "Loading";
+    return "Error";
+  }
+  if (isLoading) return "Loading";
+
+  return (
+    <FormUserDetail
+      userDetails={userDetails?.data?.customer_details[0]}
+      mutate={mutate}
+    />
+  );
+}
+```
+
+If you have better implementation for authentication and refreshing token, I would be
+more than happy to hear about them :)
