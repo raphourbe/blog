@@ -1,0 +1,127 @@
+---
+title: 'Building a SaaS with Directus and Stripe: Part 1'
+date: '2022-11-24'
+lastmod: '2022-11-24'
+tags: ['directus', 'stripe', 'saas']
+draft: false
+summary: "I just released a SaaS product for my company, and I built it with Directus and leveraged Stripe Billing. Let's take a look at the design of the app."
+authors: ['default']
+canonicalUrl: https://rphl.dev/blog/building-saas-with-directus-and-stripe-part1
+---
+
+## Context
+
+I recently build for my company a new app, which is a SaaS. I used [Directus](https://directus.io) as my backend
+for handling users, roles and
+posts. I used [Stripe Billing](https://stripe.com/docs/billing) to handle the payments,
+management of subscriptions and invoicing.
+
+I want to share here how I built it in case it might help, since there is not a lot of information about how
+to build a SaaS using the combination of these two tools.
+
+I use Next.js for my frontend, but it is not a really useful detail here. You can probably use anything.
+
+I want to focus on 4 things in this 4-part series of posts:
+
+1. The design of the app [this post]
+2. The database
+3. Directus flow
+4. Stripe webhooks
+
+I used directus version 9.18 to build it, and stripe API version "2022-08".
+
+<TOCInline toc={props.toc} asDisclosure toHeading={3} />
+<br />
+
+I think it is important to describe first my choices for this app, so you can understand what I built, and if
+some of the information will help you.
+
+## Requirements for the app
+
+Here are some important facts:
+
+1. My Customers are single individuals, and not a Company with several employees. This point has a
+   strong impact on the design of the database.
+2. I only have one service to sell, so I have just one subscription type that can be paid
+   monthly or annualy with a discount. I do not need several types of Customers.
+3. My Customers must be able to register on the platform without my intervention. But I want them to
+   activate their account using a link in a mail.
+4. I do not want to create a Stripe Customer if the user account on my platform is not activated using the
+   link in the mail.
+5. I do not want to handle the payment informations of my clients, so I let Stripe handle this part.
+   It will have some consequences on the type of billing available.
+6. I want the trial period to start only after the Customer added her payment information in Stripe.
+7. I do not need to start billing at a particular date in a month.
+8. The app must communicate with Stripe to know when a Customer can or cannot access the app regarding
+   her payment status. So I will tackle in this series the webhooks part in-depth.
+9. The Admins (me and my coworkers) do not need to have link with Stripe.
+
+## Design choices
+
+### The User/Customer part
+
+Directus is really a great CMS since it allows you, without limitation, to have as many users' roles as you want.
+To tackle points 1, 2 and 9, I only needed to create a `Customer` role. The Admin role is associated for me to the
+Directus `Admin` role by default. In my case it is sufficient, but for people who do not trust their coworkers,
+I would recommand creating a new `SaaSAdmin` role.
+
+I have created a subscription table that allows me to know what kind of subscription my customers have. It allows
+me to treat my current subscription type with two billing options as two different subscriptions. Not really useful
+right now, but it could be in the futur. Plus, if I create a new service inside the app linked only to
+one type of subscriptions, I can easily implement it in the futur.
+
+To give an example, there is a service of digital conferences included in the subscription. I could imagine
+having only this service sold to people, and not the access to the rest of the platform.
+
+To tackle point 3, I needed to add the right for a `Public` user to create a `Customer` user.
+
+Also, I needed to send an email to my new Customers with a link so they can activate their account.
+In order to achieve this, I needed to have a token for my Customers to know when they activated their account,
+but also to allow them to interact with my API. I show the implementation of this specific point right after [LINK].
+
+### Stripe part
+
+I wanted to create Stripe Customers accounts only after my Customers activated their account to avoid having empty
+Stripe Customers. So I decided to create a Flow that would, once the validation was successful, communicate with
+Stripe to create a `Stripe Customer` and retrieve the `Stripe Customer ID`.
+
+For the rest of the implementation of Stripe, I decided to use the
+[prebuilt Checkout](https://stripe.com/docs/payments/checkout)
+directly. It allows to avoid dealing with the customers' financial details, and the handling of the
+payment process which is quite handy for several reasons:
+
+- First, you have to think of the legal consequences of doing so. Indeed, I am based in France,
+  and the legislation is quite different if I manage the financial details (credit card numbers, etc.)
+  or if I let Stripe handle it. This is a discussion I had with the lawyer who made our
+  General Terms and Conditions of sales.
+- You do not have to lose time building something that has already been built by some experts, and you
+  can customize it easily.
+- You do not have to handle the payment process at all, with all the 3D Secure stuff from banks.
+
+<div className="mb-4 rounded-lg bg-orange-100 px-4 pt-4 pb-2 text-orange-700 dark:bg-orange-200 dark:text-orange-800">
+  <p className="m-0 pb-0 text-lg font-medium">Information</p>
+  <p className="m-0 pt-0 text-lg">
+    I have to admit that there is a major problem though with using Stripe Checkout! When you use
+    this prebuilt module, you cannot select at the same time a length for the trial period and the
+    starting date of your{' '}
+    <a href="https://stripe.com/docs/billing/subscriptions/billing-cycle">billing cycle</a>.<br />
+    As mentioned in points 6 and 7, it is not an issue for me. However, if latter I want to have my billing
+    cycle starting the first day of each month, then I will have to abandon Stripe Checkout. Maybe by
+    the time I will change, the Stripe Checkout module will handle this case.
+  </p>
+</div>
+
+### Database part
+
+I took some inspiration for the database part looking at the ghost.io app and how they handle
+the Stripe relation.
+
+I will have four tables:
+
+- `customer_details` with some billing details for my customers (name, address, etc.) to avoid
+  modifying the `directus_users` table.
+- `customer_subscriptions` with the details of the type of subscription Customers picked, the dates
+  of trial's end, billing periods, etc.
+- `subscriptions` with the informations regarding my subscriptions (price, stripe ID, etc.)
+- `stripe_tax` with informations regarding taxes I need to add to my customers. Since I am in France,
+  I needed to manage different level of VAT regarding the location of my Customers.
