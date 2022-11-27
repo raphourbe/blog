@@ -1,0 +1,186 @@
+---
+title: 'Building a SaaS with Directus and Stripe: Part 2, database.'
+date: '2022-11-27'
+lastmod: '2022-10-27'
+tags: ['directus', 'stripe']
+draft: false
+summary: "Let's build the database of a SaaS using Directus and Stripe Billing."
+authors: ['default']
+canonicalUrl: https://rphl.dev/blog/building-saas-with-directus-and-stripe-part2
+---
+
+## Context
+
+See [Part 1](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part1) for Context details.
+
+This series is structured as follows:
+
+1. The design of the app, [part 1](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part2)
+2. The database [this post]
+3. Directus flow
+4. Stripe webhooks
+
+Here we will focus on the database implementation.
+
+<TOCInline toc={props.toc} asDisclosure toHeading={3} />
+<br />
+
+## Four tables
+
+In order to build my SaaS, I wanted to have different roles for the users, mainly `Admins` (me and my coworkers) and `Customers`.
+We have only one single subscription, with a monthly price or an annual one, so I only needed one type of `Customers`.
+
+Once I had created the `Customer` role in Directus, I needed to add a table to have more informations about them, like
+details for the invoices (name, address, etc.) I found it easier for me to have a separate table instead of modifying the
+`directus_users` table, even if it is doable.
+
+Inspired by the database's model of [Ghost](https://ghost.io), I created:
+
+- `customer_details` with some billing details for my Customers (name, address, etc.) to avoid
+  modifying the `directus_users` table.
+- `customer_subscriptions` with the details of the type of subscription Customers picked, the dates
+  of trial's end, billing periods, etc.
+- `subscription_items` with the informations regarding my subscriptions (price, stripe product ID, etc.)
+- `stripe_tax` with informations regarding taxes I need to add to my Customers. Since I am in France,
+  I needed to manage different VAT regarding the location of my Customers.
+
+## The customer_details table
+
+### Details
+
+The main purpose of this table is to record users' billing addresses and their `Stripe Customer ID`.
+My point here was to avoid modifying directly the `directus_users` table which is a system table.
+It is possible to do so if you need to, but there might be an issue with a futur version of Directus
+if it modifies this table. So, to be safe, I decided to create a new table for this role.
+
+This table contains:
+
+- id
+- the same billind address informations required in Stipe, so I can send them to Stripe
+  directly if needed or at least compare them.
+- a boolean value telling if the Customer activated her account (`account_activated`)
+- the `Stripe Customer ID`
+- a `customer_subscriptions` One to Many relationship, where are stored the details for the subscription.
+- a Many to One relationship to the `stripe_tax` table to get the `tax_id` linked to the billing address.
+- a One to One relationship with the Customer in `directus_users`.
+
+### Setting up the relationships
+
+#### The One to One relationship
+
+As mentioned in Directus' documentation on [relationships](https://docs.directus.io/configuration/data-model/relationships.html#many-to-one-m2o),
+the One to One relationship is basically a Many to One relationship where you force the "One".
+
+To set it in Directus, create the `Many to One` field and check the _Value has to be unique_ in the **Schema** part of
+the new field.
+
+![img One to One relationship in directus](/static/images/one-to-one-relationship.webp)
+
+You will notice when creating this kind of field that you can _Add Field to Related Collection_ in the **Relationship**
+part. This will show you the field and let you manage the relationship from the linked table. For me, it would
+allow me to see the `customer_details id` in the `directus_users` table for example. Please note that you
+have this option for any kind of relationship.
+
+![img Add Field to Related Collection](/static/images/add-field-to-related-collection.webp)
+
+#### The Many to One relationship, and the naming pitfall
+
+You just have to follow the same steps than for a One to One relationship, without selecting the _Value has to be unique_ in the **Schema** part :).
+
+One thing I have noticed though while using Directus, is that naming your field like `customer_subscriptions_id`
+for a relationship between the `customer_details` table and the `customer_subscriptions` table is not
+optimal. Even if the relationship is built on the `id` of the `customer_subscriptions` table.
+
+Indeed, I used to create my database myself writing SQL, and for these relationships I used to
+name the field like `<table>_id` to know the table and field I refered to. However, here, since you will probably
+make API calls with it, it is disturbing to have a field with `id` in it.
+
+For example, a graphQL query could be:
+
+```jsx
+query {
+  query {
+    customer_details(
+      filter: { user_id: { id: { _eq: "$CURRENT_USER" } } }
+    ) {
+      account_activated
+      user_id {
+        role {
+          name
+        }
+      }
+    }
+  }
+}
+```
+
+And as you can see, you have `user_id` which refers to your user... which is a little disturbing.
+I made a mistake for this one. I think a better way would be to have `user` instead of `user_id`:
+
+```jsx
+query {
+  customer_details(
+    filter: { user: { id: { _eq: "$CURRENT_USER" } } }
+  ) {
+    account_activated
+    user {
+      role {
+        name
+      }
+    }
+  }
+}
+```
+
+So you have to pay attention to your fields' names when using relationship.
+
+## The subscription_items table
+
+The table contains the informations of the Stripe products/subscriptions. I did not want to use Stripe API
+to retrieve these informations all the time, so I decided to store them in database since they are not
+supposed to change regularly.
+
+Plus, I wanted my coworkers to be able to change the number of days of trial themselves without using Stripe dashboard
+in case we wanted to do a special offer.
+
+It contains:
+
+- id
+- The price of the product
+- `stripe_price_id` which is the id Stripe requires when setting up the Checkout session.
+- The product name
+- The billing interval
+- The number of days of trial.
+
+## The customer_subscriptions table
+
+This table could be merged with the `customer_details` table. I decided not to, in order to let me the
+possibility of having several subscriptions type by user, latter in the futur. I also think that it is
+easier to separate the purpose of each table: one for the customers' details, one for the subscriptions' details.
+It contains:
+
+- id
+- The id of the `customer_details` (table described above)
+- the id of the `subscription_items` (table described above)
+- `stripe_subscription_status` which is the status of the payment sent by Stripe
+  (see [Stripe doc](https://stripe.com/docs/api/subscriptions/object#subscription_object-status)).
+  Possible values are "incomplete", "incomplete_expired", "trialing", "active", "past_due", "canceled",
+  or "unpaid". So I created a dropdown field in Directus. I look at this data when I went to decide if
+  the Customer is allowed to access resources on my app.
+- `trial_ends_at`, which represents when the trial will end, or if it has already ended and the customer
+  needs to pay before having access.
+- `ends_at`, which represent until when the Customer is allowed to access the resources if she is
+  not in trial.
+
+## The stripe_tax table
+
+This table is really simple, it links the postal code to the `stripe_tax_id` given by Stripe when you
+create different predefined Taxes in Stripe dashboard (or via API).
+
+Hence, it contains:
+
+- id
+- `stripe_tax_id`
+- a description to know which location is concerned
+- a part of the postal code (in France, regarding the first 3 numbers of the postal code, you can know what
+  kind of VAT to apply).

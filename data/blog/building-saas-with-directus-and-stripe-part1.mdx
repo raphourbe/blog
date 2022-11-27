@@ -1,7 +1,7 @@
 ---
-title: 'Building a SaaS with Directus and Stripe: Part 1'
-date: '2022-11-24'
-lastmod: '2022-11-24'
+title: 'Building a SaaS with Directus and Stripe: Part 1, design.'
+date: '2022-11-26'
+lastmod: '2022-11-27'
 tags: ['directus', 'stripe', 'saas']
 draft: false
 summary: "I just released a SaaS product for my company, and I built it with Directus and leveraged Stripe Billing. Let's take a look at the design of the app."
@@ -12,8 +12,7 @@ canonicalUrl: https://rphl.dev/blog/building-saas-with-directus-and-stripe-part1
 ## Context
 
 I recently build for my company a new app, which is a SaaS. I used [Directus](https://directus.io) as my backend
-for handling users, roles and
-posts. I used [Stripe Billing](https://stripe.com/docs/billing) to handle the payments,
+for handling users, roles and posts. I used [Stripe Billing](https://stripe.com/docs/billing) to handle the payments,
 management of subscriptions and invoicing.
 
 I want to share here how I built it in case it might help, since there is not a lot of information about how
@@ -24,7 +23,7 @@ I use Next.js for my frontend, but it is not a really useful detail here. You ca
 I want to focus on 4 things in this 4-part series of posts:
 
 1. The design of the app [this post]
-2. The database
+2. The database, [part 2](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part2)
 3. Directus flow
 4. Stripe webhooks
 
@@ -55,6 +54,8 @@ Here are some important facts:
 8. The app must communicate with Stripe to know when a Customer can or cannot access the app regarding
    her payment status. So I will tackle in this series the webhooks part in-depth.
 9. The Admins (me and my coworkers) do not need to have link with Stripe.
+10. I need to add a different VAT regarding where the customer lives in France, and I cannot use
+    Stripe for this part (it does not handle it).
 
 ## Design choices
 
@@ -65,7 +66,7 @@ To tackle points 1, 2 and 9, I only needed to create a `Customer` role. The Admi
 Directus `Admin` role by default. In my case it is sufficient, but for people who do not trust their coworkers,
 I would recommand creating a new `SaaSAdmin` role.
 
-I have created a subscription table that allows me to know what kind of subscription my customers have. It allows
+I have created a `subscription` table that allows me to know what kind of subscription my customers have. It allows
 me to treat my current subscription type with two billing options as two different subscriptions. Not really useful
 right now, but it could be in the futur. Plus, if I create a new service inside the app linked only to
 one type of subscriptions, I can easily implement it in the futur.
@@ -77,13 +78,17 @@ To tackle point 3, I needed to add the right for a `Public` user to create a `Cu
 
 Also, I needed to send an email to my new Customers with a link so they can activate their account.
 In order to achieve this, I needed to have a token for my Customers to know when they activated their account,
-but also to allow them to interact with my API. I show the implementation of this specific point right after [LINK].
+but also to allow them to interact with my API. I show the implementation of this specific point in part 3,
+leveraging Directus Flows.
 
 ### Stripe part
 
 I wanted to create Stripe Customers accounts only after my Customers activated their account to avoid having empty
 Stripe Customers. So I decided to create a Flow that would, once the validation was successful, communicate with
 Stripe to create a `Stripe Customer` and retrieve the `Stripe Customer ID`.
+
+As mentioned in point 10, I also needed to have a `Stripe Tax ID` that could change regarding my customers' billing
+addresses. Here again, I decided to add a Flow to check the postal code and select the corresponding `Stripe Tax ID`.
 
 For the rest of the implementation of Stripe, I decided to use the
 [prebuilt Checkout](https://stripe.com/docs/payments/checkout)
@@ -111,6 +116,15 @@ payment process which is quite handy for several reasons:
   </p>
 </div>
 
+Finally, I wanted to handle Stripe Webhooks to know when a customer subscribed, which kind of subscription,
+if they paid properly, etc. So I created a custom endpoint for this part, that would, as you might expect, update my
+database and send the proper emails to the customers.
+
+You can find a kick way of doing it in my post:
+[Listen to Stripe webhooks with Directus.](https://rphl.dev/blog/create-stripe-webhook-listener-directus), but I
+will do a more complete explanation in the part 3 of this series. Indeed, if Stripe is really easy to use and the
+documentation is really great, I found it a little blurry when it comes to handling webhooks.
+
 ### Database part
 
 I took some inspiration for the database part looking at the ghost.io app and how they handle
@@ -122,6 +136,6 @@ I will have four tables:
   modifying the `directus_users` table.
 - `customer_subscriptions` with the details of the type of subscription Customers picked, the dates
   of trial's end, billing periods, etc.
-- `subscriptions` with the informations regarding my subscriptions (price, stripe ID, etc.)
+- `subscription_items` with the informations regarding my subscriptions (price, stripe product ID, etc.)
 - `stripe_tax` with informations regarding taxes I need to add to my customers. Since I am in France,
   I needed to manage different level of VAT regarding the location of my Customers.
