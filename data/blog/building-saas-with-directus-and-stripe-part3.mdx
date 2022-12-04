@@ -1,0 +1,188 @@
+---
+title: 'Building a SaaS with Directus and Stripe: Part 3, Directus Flows.'
+date: '2022-12-04'
+lastmod: '2022-12-04'
+tags: ['directus', 'stripe']
+draft: false
+summary: "Let's build the Directus Flows used for a SaaS, built with Directus and Stripe Billing."
+authors: ['default']
+canonicalUrl: https://rphl.dev/blog/building-saas-with-directus-and-stripe-part3
+---
+
+## Context
+
+See [Part 1](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part1) for Context details.
+
+This series is structured as follows:
+
+1. The design of the app, [part 1](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part1)
+2. The database, [part 2](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part2)
+3. Directus flow [this post]
+4. Stripe webhooks
+
+Here we will focus on the Flows implementation.
+
+As mentioned in our [Part 1](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part1),
+we want the following processes for user registration:
+
+> 3. My Customers must be able to register on the platform without my intervention. But I want them to
+>    activate their account using a link in a mail.
+> 4. I do not want to create a Stripe Customer if the user account on my platform is not activated using the
+>    link in the mail.
+
+I used two Flows here to handle these requirements. The first one sends
+an email with an activation link. The second one creates a new Stripe Customer
+when the activation link is clicked.
+
+<TOCInline toc={props.toc} asDisclosure toHeading={3} />
+<br />
+
+## Email Flow after an account creation
+
+This Flow is similar to the Newsletter subscription flow described
+[here](https://rphl.dev/blog/creating-newsletter-subscription-form-directus).
+
+### Creating a token for the user (not a Flow)
+
+To send an email of activation I needed to attribute a token to my user.
+
+When a user validate the user form, a token is assigned to them, and registered in
+the `directus_users` table in the `token` field.
+
+To create this token, I use Directus API to be sure my token
+meets Directus requirements:
+
+```js
+async function generate_random_token(directus_url) {
+  const headers = {
+    'Content-Type': 'application/json',
+  }
+  return await fetch(directus_url + 'utils/random/string', {
+    method: 'GET',
+    headers,
+  })
+    .then((res) => res.json())
+    .catch((error) => {
+      console.log('random token error:', error)
+      return 'error'
+    })
+}
+```
+
+I call this function once the user clicks on the Subscribe button at the end
+of the subscription form, before sending the data to directus. This step could actually be
+refactored to become a new Flow by the way...
+
+### Sending the activation email
+
+![Send activation email Flow](/static/images/directus-stripe-part-3/send_activation_email_whole_flow.webp)
+
+First, what triggers my Flow is the `items.create` scope for the `customer_details` table.
+When a user submits the form, a Directus user with the `Customer` Role is created, and also
+a row in the `customer_details` table.
+
+Then, I check if it is indeed a `Customer` with a **Condition** operation, to be sure it is not an `Admin` or another role:
+
+![Customer condition](/static/images/directus-stripe-part-3/send_activation_email_customer_condition.webp)
+
+Then I use the **Send email** operation once.
+
+![Send email](/static/images/directus-stripe-part-3/send_activation_email_send_email.webp)
+
+<div className="mb-4 rounded-lg bg-orange-100 px-4 pt-4 pb-2 text-orange-700 dark:bg-orange-200 dark:text-orange-800">
+  <p className="m-0 pb-0 text-lg font-medium">Information</p>
+  <p className="m-0 pt-0 text-lg">
+    Please note that it is important to press enter once you have typed the email variable in the
+    `To` field and have the email variable appearing below the field. Otherwise, it is like you did
+    not enter anything (see picture above for the result you should have).
+  </p>
+  <p className="m-0 pt-0 text-lg">
+    You can use the `{}` next to the `To` field to toggle the raw editor and add
+    directly the mail required as such:
+  </p>
+  <p className="m-0 pt-0 text-lg">
+    ```
+    ["{{$trigger.payload.user_id.email}}"]
+    ```
+    </p>
+  <p className="m-0 pt-0 text-lg">
+    As mentioned in the [Part 2](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part2)
+    of this series, at the <span className="text-orange-700 dark:text-orange-800 font-bold">The Many to One relationship,
+    and the naming pitfall</span> paragraph,
+    the naming convention for user is not properly done here.
+    It should be `user` and not `user_id`.
+  </p>
+</div>
+
+Then what is important is to have the endpoint of your website where the logic
+to activate the account is. Somtehing like: `https://your-saas.com/user/validate?tok={{$trigger.payload.user_id.token}}&cd={{$trigger.key}}`
+
+Since I have an `account_activated` field in my `customer_details`,
+I add directly the row `id` in the link using `cd={{$trigger.key}}`. It allows me to directly update the proper row.
+
+I am sure there is a better way,
+and a more secure way to do it. Like just giving the token, and add some logic to retrieve the row in the table using
+only the user's token (it's on my Todo list). But, as you will see, I discard the token
+right after that and my user will not have any token anymore to call the API. So to some extent
+it is ok for the moment.
+
+My next step in this Flow is to send myself an email, so I have the information
+when a new `Customer` activated her account.
+
+## Creating a Stripe Customer with a Flow
+
+![Create Stripe Customer Flow](/static/images/directus-stripe-part-3/create-stripe-customer-flow.webp)
+
+The main idea behind the Flow is to check when an Update happens to a row of `customer_details`
+table if it is the `activated_account` boolean that is becoming `true`.
+
+If the answer is positive, then I verify that my `Customer` does not have a `Stripe Customer ID`. If she does not,
+then I read some customer's information and send them to Stripe with `stripe.customers.create`, and retrieve the
+`Stripe Customer ID` and save it into the database.
+
+I think I do not need to go over every operations of the whole Flow process (if you think I need, please ask in the comments).
+
+The important steps to detail here are the **Run Script** operation, and the update one right after I believe. Here is my code for the **Run Script**:
+
+```js
+module.exports = async function (data) {
+  const stripe = require('stripe')('sk_live_YOUR_KEY')
+
+  const customer = await stripe.customers.create({
+    email: data.read_user.email,
+    name: data.read_user_id.enterprise,
+    address: {
+      city: data.read_user_id.address_city,
+      country: data.read_user_id.address_country,
+      line1: data.read_user_id.address_line,
+      postal_code: data.read_user_id.address_postal_code,
+    },
+    preferred_locales: ['fr-FR'],
+    metadata: {
+      directusId: data.read_user_id.user_id,
+    },
+  })
+  return customer
+}
+```
+
+Please be aware that to use `stripe-js` here, you need to activate it, as described in my post:
+[Integrate Stripe to Directus' flows.](https://rphl.dev/blog/integrate-stripe-to-directus-flow)
+
+For the **Update** operation, what is important to keep in mind is these Flow rules:
+
+- You can use raw expression when you toggle the `{}` next to the fields titles.
+  In the next image, I have toggled it so you can see how it is different from the "normal" state.
+- You can use the name of the previous operations to retrieve their result. In my example, my Run Script which
+  create the Stripe Customer in Stripe and get back the `Stripe Customer ID` is called:
+  `post_stripe_create_customer`. I use this information in the _Paylod_ field of the **Update** operation directly.
+
+![Create Stripe Customer Flow](/static/images/directus-stripe-part-3/create-stripe-customer-flow-save-operation.webp)
+
+As you might have noticed, at the end of the Flow is a **_Remove Directus Token_** operation, that removes the
+token of the user. So once the account is activated, the `Customer` will never be able to call the API with
+her token.
+
+For more information on Flow, please refer to the
+[Directus' official documentation](https://docs.directus.io/configuration/flows.html).
+At the moment the Cookbook is not entirely finished, but the Directus team is working on it.
