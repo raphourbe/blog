@@ -1,0 +1,29 @@
+---
+title: 'Enhancing Directus' Send Mail operation in Flow.'
+date: '2022-12-07'
+lastmod: '2022-12-07'
+tags: ['directus', 'flow']
+draft: true
+summary: "The Send Mail operation in Directus' Flow function is great, but it lacks a few fields. Let's add them"
+authors: ['default']
+canonicalUrl: https://rphl.dev/blog/enhancing-directus-send-mail-operation
+---
+
+## Context
+
+While reading a few discussions on the github of Directus, I found [this question](https://github.com/directus/directus/discussions/16726).
+The main problem with the **Send Mail** operation of Directus Flow is that it lacks a few functionalities, like: Cc, Bcc or Reply to.
+
+I went to build a new Send Mail operation with these elements to understand how to build Operations for Flow.
+
+I used `directus v9.21.2` to build it.
+
+<TOCInline toc={props.toc} asDisclosure toHeading={3} />
+<br />
+
+## Building the extension folder
+
+You need to create an extension to build your own operation. 
+It is well explained how to [start a new extension](https://docs.directus.io/extensions/creating-extensions.html) in the documentation,
+and have a template. If you want to copy past my code, please select `Javascript` instead of `Typescript` for the following code. 
+Or adapt it to your Typescript needs.
