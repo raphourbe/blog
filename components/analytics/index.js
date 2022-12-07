@@ -8,7 +8,7 @@ import { Analytics } from '@vercel/analytics/react';
 
 const isProduction = process.env.NODE_ENV === 'production'
 
-const Analytics = () => {
+const AnalyticsProvider = () => {
   return (
     <>
       {isProduction && siteMetadata.analytics.plausibleDataDomain && <Plausible />}
@@ -21,4 +21,4 @@ const Analytics = () => {
   )
 }
 
-export default Analytics
+export default AnalyticsProvider
