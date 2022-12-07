@@ -18,6 +18,13 @@ I went to build a new Send Mail operation with these elements to understand how 
 
 I used `directus v9.21.2` to build it.
 
+The new functionalities will be:
+
+- Cc
+- Bcc
+- Reply to in the header of the mail
+- Selecting a template
+
 <TOCInline toc={props.toc} asDisclosure toHeading={3} />
 <br />
 
@@ -27,3 +34,248 @@ You need to create an extension to build your own operation.
 It is well explained how to [start a new extension](https://docs.directus.io/extensions/creating-extensions.html) in the documentation,
 and have a template. If you want to copy past my code, please select `Javascript` instead of `Typescript` for the following code. 
 Or adapt it to your Typescript needs.
+
+You just need to type: `npm init directus-extension` and follow the instructions (selecting operation, then javascript).
+
+## Modifying app.js
+
+The `app.js` file is used to design the panel in Directus Flow that you will parametrize while building your flow. It basically consists in creating a few fields in the Send Mail form.
+
+```jsx:app.js
+export default {
+  id: "custom-mail-operation",
+  name: "Custom Mail Operation",
+  icon: "mail",
+  description: "Enhanced the Send Mail Operation",
+  overview: ({ body, to, cc, replyTo, bcc, type, subject, template }) => [
+    {
+      label: "Subject",
+      text: subject,
+    },
+    {
+      label: "To",
+      text: Array.isArray(to) ? to.join(", ") : to,
+    },
+    {
+      label: "Cc",
+      text: Array.isArray(cc) ? cc.join(", ") : cc,
+    },
+    {
+      label: "Bcc",
+      text: Array.isArray(bcc) ? bcc.join(", ") : bcc,
+    },
+    {
+      label: "Reply to",
+      text: replyTo,
+    },
+    {
+      label: "Type",
+      text: type || "markdown",
+    },
+    {
+      label: "Body",
+      text: body,
+    },
+    {
+      label: "Template",
+      text: template,
+    },
+  ],
+  options: (panel) => {
+    return [
+      {
+        field: "to",
+        name: "To",
+        type: "csv",
+        meta: {
+          width: "full",
+          interface: "tags",
+          options: {
+            iconRight: "alternate_email",
+          },
+        },
+      },
+      {
+        field: "cc",
+        name: "Cc",
+        type: "csv",
+        meta: {
+          width: "full",
+          interface: "tags",
+          options: {
+            iconRight: "alternate_email",
+          },
+        },
+      },
+      {
+        field: "bcc",
+        name: "Bcc",
+        type: "csv",
+        meta: {
+          width: "full",
+          interface: "tags",
+          options: {
+            iconRight: "alternate_email",
+          },
+        },
+      },
+      {
+        field: "replyTo",
+        name: "Reply To",
+        type: "string",
+        meta: {
+          width: "full",
+          interface: "input",
+          options: {
+            iconRight: "alternate_email",
+          },
+        },
+      },
+      {
+        field: "subject",
+        name: "Subject",
+        type: "string",
+        meta: {
+          width: "full",
+          interface: "input",
+          options: {
+            iconRight: "title",
+          },
+        },
+      },
+      {
+        field: "template",
+        name: "Template",
+        type: "string",
+        meta: {
+          width: "full",
+          interface: "input",
+          options: {
+            iconRight: "title",
+          },
+        },
+      },
+      {
+        field: "type",
+        name: "Type",
+        type: "string",
+        schema: {
+          default_value: "markdown",
+        },
+        meta: {
+          interface: "select-dropdown",
+          width: "half",
+          options: {
+            choices: [
+              {
+                text: "markdown",
+                value: "markdown",
+              },
+              {
+                text: "wysiwyg",
+                value: "wysiwyg",
+              },
+            ],
+          },
+        },
+      },
+      {
+        field: "body",
+        name: "Body",
+        type: "text",
+        meta: {
+          width: "full",
+          interface:
+            panel.type === "wysiwyg"
+              ? "input-rich-text-html"
+              : "input-rich-text-md",
+        },
+      },
+    ];
+  },
+};
+```
+
+## Modifying the api.js
+
+The `api.js` file is the logic part: what is happening once your
+**Send Email** operation form is read by Directus.
+
+Directus uses [NodeMailer](https://nodemailer.com/message/) under the
+hood to send mails. So the aim here is to give the proper information to NodeMailer.
+
+I copy/paste the function of Directus that uses sanitizeHTML to transform
+markdown into html, because I did not know how to access it directly otherwise.
+
+The function check if the body of the message is markdown or comes from
+wysiwyg and transform the body.
+
+Then it checks if we added a `Template` name.
+If nothing is entered in the _template_ field of the operation in the Flow dashboard,
+a `null` value is passed to this function and we uses the default function of NodeMailer
+which result in a simple mail with no design.
+
+If you do want to use a template, type the name of your template file 
+(if you have `super-template.liquid` for example as a template file, type `super-tempate` in the text area).
+Be aware that the html will be put into the `{{html}}` of your template. So you need one. If you want a how-to for
+creating mail template, please tell me in the comments.
+
+```jsx:api.js
+import { marked } from "marked";
+import sanitizeHTML from "sanitize-html";
+
+/**
+ * Render and sanitize a markdown string
+ */
+export function md(str) {
+  return sanitizeHTML(marked(str));
+}
+
+export default {
+  id: "custom-mail-operation",
+  handler: async (
+    { body, to, cc, replyTo, bcc, type, subject, template },
+    { accountability, database, getSchema, services }
+  ) => {
+    const { MailService } = services;
+    const mailService = new MailService({
+      schema: await getSchema({ database }),
+      accountability,
+      knex: database,
+    });
+
+    // If you don't want to specify a template use this.
+    if (template == "" || template == null)
+      await mailService.send({
+        html: type === "wysiwyg" ? body : md(body),
+        to: to,
+        cc: cc,
+        bcc: bcc,
+        replyTo: replyTo,
+        subject: subject,
+      });
+    // If you want a template => you need to have {{ html }}
+    // in your template
+    else
+      await mailService.send({
+        to: to,
+        cc: cc,
+        bcc: bcc,
+        replyTo: replyTo,
+        subject: subject,
+        template: {
+          name: template !== null || template !== undefined ? template : "base",
+          data: { html: type === "wysiwyg" ? body : md(body) },
+        },
+      });
+  },
+};
+```
+
+## Build the Operation and add it to Directus
+
+Once our code is done, we need to run `npm run build` in the folder directus-extension created for us.
+Then we retrieve the content of the `/dist` folder into your directus folder: `/extension/operations/custom-enhanced-mail`.
+
+You should then have your new panel inside Flow available.
+
