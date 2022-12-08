@@ -1,0 +1,71 @@
+---
+title: 'Sending external parameters to Directus Flows.'
+date: '2022-12-08'
+lastmod: '2022-12-08'
+tags: ['directus', 'flow']
+draft: false
+summary: 'Using the Webhook trigger event, you can send external parameters to your FLows.'
+authors: ['default']
+canonicalUrl: https://rphl.dev/blog/sending-parameters-to-directus-flow
+---
+
+## Context
+
+Directus Flow are really useful and you can do a lot of things with them.
+If at some point you need some external parameters though, you can get them using the
+[Webhook Event to trigger a Flow](https://docs.directus.io/reference/system/flows.html#flow-with-get-webhook-trigger)
+to retrieve them.
+
+I used directus version `9.21` to test this solution.
+
+This post is based on an answer I made on [github](https://github.com/directus/directus/discussions/16751).
+
+<TOCInline toc={props.toc} asDisclosure toHeading={3} />
+<br />
+
+## Process
+
+If you call a Flow triggered by a GET Webhook with some parameters, 
+you can use these parameters in your Flow. 
+
+If I use in a **Run Script** operation with `console.log(data)` after my 
+Event triggered by `http://localhost:8055/flows/trigger/9033763a-cd26-4eee-a309-0af14291622b?param1=hello&param2=world`,
+it gives me:
+
+![Log](/static/images/sending-parameters-to-directus-flow/console-log.webp)
+
+## Ways to use them
+
+### In a Directus Endpoint
+
+The idea comes from [the github post](https://github.com/directus/directus/discussions/16751)).
+You want to trigger a Flow from an external endpoint, and get the result, but you need to send some
+specific parameters.
+
+With a Directus endpoint it can be done with:
+
+```jsx:endpoint.jsx
+const axios = require("axios");
+
+const result = (flow_uuid, params) => {
+  try {
+    const flow_response = await axios({
+      url: "yourdirectus/flows/trigger/" + flow_uuid + "?param1=" + params[0],
+      method: "GET",
+    }).then((response) => {
+      // whatever you want to do with response
+    });
+  } catch (err) {
+    console.log(err);
+  }
+}
+```
+
+### In another Flow
+
+With this method, since you can make a request to a URL inside a Flow, 
+you can use your _Webhook with some parameters Flow_. Maybe something like:
+
+`http://localhost:8055/flows/trigger/flow_uuid?param1={{$trigger.something}}`
+
+![Calling from another Flow](/static/images/sending-parameters-to-directus-flow/calling-from-other-webhook.webp)
