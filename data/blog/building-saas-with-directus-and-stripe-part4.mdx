@@ -151,6 +151,8 @@ Then I created 2 files:
 - `index.js`, where I configure Stripe and prepare all the Directus Services I will need, and dispatch the event to the proper handling function
 - `handler.js`, where I create a Handler which will act accordingly to the event.
 
+You will find the [complete files on the github repo](https://github.com/raphourbe/blog/tree/main/public/static/code/stripe-webhook-endpoint) of this blog if you want to copy/paste them.
+
 <div className="mb-4 rounded-lg bg-orange-100 px-4 pt-4 pb-2 text-orange-700 dark:bg-orange-200 dark:text-orange-800">
   <p className="m-0 pb-0 text-lg font-medium">Information</p>
   <p className="m-0 pt-0 text-lg">
@@ -202,10 +204,10 @@ export default (router, { services, exceptions, database, schema, logger }) => {
 
 I need two Directus services for this part:
 
-- ItemServices, to retrieve data from the database. I create 3 services linked to the tables "customer_details", "customer_subscriptions", and "subscription_items". I use them in the Handler.
+- ItemServices, to retrieve data from the database. I create 3 services linked to the tables _"customer_details"_, _"customer_subscriptions"_, and _"subscription_items"_. I use them in the Handler.
 - MailServices, to send to the customers emails regarding their subscriptions. It is based on NodeMailer, and you can implement mail templates with it. This is the solution I use.
 
-So in index.js, I call the Directus services and instantiate a few one as follow:
+So in `index.js`, I call the Directus services and instantiate a few one as follow:
 
 ```js:index.js
 export default (router, { services, exceptions, database, schema, logger }) => {
@@ -297,4 +299,123 @@ I also want to retrieve the information in `customer.subscription.updated` since
 
 I want to listen to `customer.subscription.deleted` to send a goodbye email, and also check if I end the access to the Customer right now (cases when your customer did not pay for the month, and 3 days after the invoice is sent, canceled the subscription), or at the end of a period (the Customer paid for the month and canceled during the month. She needs to have access until the end of the month).
 
+#### When there is a problem
+
+The last event I listen to is `invoice.payment_action_required`, which means that there is a problem with a Customer. When this happens, I want to send to the customer and to me a mail. This way, I am informed of a problem and I can keep track of it.
+
+I do not have a screenshot for this one, but you will also get with this event a `customer.subscription.updated` where you will have a new `status` for the subscription. If it is because the Customer did not pay, then she will be blocked.
+
 ### The handler
+
+My handler is an Object that contains how to handle the various events Stripe sends. Its source code is [available here](https://github.com/raphourbe/blog/tree/main/public/static/code/stripe-webhook-endpoint).
+
+I initialize the `Handler` in the `index.js` file, and do a `switch case` to select the event and the function.
+
+```js:index.js
+
+```
+
+#### New subscription
+
+A new subscription can happen in two cases: (1) the Customer is new, so we do not have any row for her in the _customer_subscriptions_ table, or (2) she had a subscription, canceled it, then renew it. In this second case, we already have a row for her in database, so we need to update it.
+
+This is what you will find in the `handleSubscriptionCreated` function, which is `async` by the way.
+
+As you will notice in the function, I make use of [email templates](https://docs.directus.io/extensions/email-templates.html). If you need information on how to handle them, please let me know in the comments.
+
+```js:handler.js
+async handleSubscriptionCreated(data) {
+  // A subscription is created. Since, we are using trial periods,
+  // we start with this webhook to create a subscription.
+  console.log('Enter: handleSubscriptionCreated')
+  try {
+    const customerDetails = await this.getCustomerDetails(data.customer)
+    const customerSubscription = await this.getCustomerSubscription(customerDetails.id)
+    const subscriptionItem = await this.getSubscriptionItemFromPriceId(data.plan.id)
+
+    const trialEnd = this.getDateToString(new Date(data.trial_end * 1000))
+
+    try {
+      if (customerSubscription.length == 0) {
+        console.log(`No data in DB for ${customerDetails.id}.`)
+        // The subscription status will be set to the default
+        // value in DB (here "trialing").
+        this.customerSubscriptionService.createOne({
+          customer_details: customerDetails.id,
+          subscription_items: subscriptionItem.id,
+          trial_ends_at: trialEnd,
+        })
+      } else {
+        console.log(`A row already exists for customer_subscriptions ${customerDetails.id}.`)
+        console.log(`Update stripe_subscription_status to ${data.status}`)
+        var item = {
+          stripe_subscription_status: data.status,
+        }
+        // Compare with our DB record
+        // Do nothing or get the plan relative to the new price_id.
+        if (customerSubscription[0].subscription_items.id !== subscriptionItem.id) {
+          // Not the correct plan !
+          item.subscription_items = subscriptionItem.id
+        }
+
+        if (data.status === 'trialing') {
+          console.log(`End trial period set to ${trialEnd}.`)
+          item.trial_ends_at = trialEnd
+          item.ends_at = null
+        }
+
+        this.customerSubscriptionService.updateOne(customerSubscription[0].id, item)
+      }
+    } catch (error) {
+      console.log(error)
+      console.log('Exit with error for creation: handleCheckoutSessionCompleted')
+      return false
+    }
+
+    // Send the email if it's the first time the customer subscribe.
+    if (customerSubscription.length == 0) {
+      try {
+        console.log('Send mail to ', customerDetails.user_id.email)
+        await this.mailService.send({
+          to: customerDetails.user_id.email,
+          bcc: 'mymail@mail.com',
+          subject: 'Bienvenue !',
+          template: {
+            name: 'subscription-started',
+            data: {
+              firstName: customerDetails.user_id.first_name,
+              trialEnd: trialEnd,
+              daysOfTrial: subscriptionItem.days_of_trial,
+            },
+          },
+        })
+
+        console.log('Send mail to admin')
+        await this.mailService.send({
+          to: 'admin@website.com',
+          subject: 'New subscription created',
+          template: {
+            name: 'admin-new-subscription',
+            data: {
+              eventName: 'customer.subscription.created',
+              customerId: customerDetails.user_id.id,
+              customerEmail: customerDetails.user_id.email,
+              trialEnd: trialEnd,
+              daysOfTrial: subscriptionItem.days_of_trial,
+              action: 'Create new customer_subscriptions row in table.',
+            },
+          },
+        })
+      } catch (error) {
+        console.log(error)
+        console.log('Exit with error for mail: handleSubscriptionCreated')
+        return false
+      }
+    }
+  } catch (error) {
+    console.log(error)
+    console.log('Exit with error when getting items in DB: handleSubscriptionCreated')
+    return false
+  }
+}
+```
