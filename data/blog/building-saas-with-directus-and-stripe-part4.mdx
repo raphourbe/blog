@@ -826,6 +826,8 @@ async handleSubscriptionDeleted(data) {
 
 ## The end
 
+Once all this hard work is done, for both of your extensions, you should run in their respective folders: `npm run build` and take the files in `/dist` and put them inside the correct folder (See Layout of the Directus extensions paragraph). You can now give to Stripe your endpoint for the webhooks: `your-directus-domain.com/stripe-webhook` if you put your endpoint extension in a folder named `stripe-webhook`.
+
 Well, here it is for this 4-part series. Again, the source code for the `index.js` and the `handler.js` file is [on my repo here](https://github.com/raphourbe/blog/tree/main/public/static/code/stripe-webhook-endpoint). Congrats to you if you arrive here... It was quite long!
 
 If you have any comment or question, please use the comment section right under this post. If my code is not beautiful for you, and you make a more classy version of it, please let me know. I would be happy to use it too!
