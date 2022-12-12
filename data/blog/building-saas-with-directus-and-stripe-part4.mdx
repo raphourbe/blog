@@ -162,8 +162,139 @@ Then I created 2 files:
 
 ### Stripe's configuration
 
+For this part, the Stripe documentation is properly done. If you read the full post to [create the stripe-webhook-middleware](https://rphl.dev/blog/create-stripe-webhook-listener-directus), you already have it.
+
+So at the beginning of my `index.js` file, I have my configuration, which is mostly a verification that it is Stripe that is sending me some data.
+
+As mentioned above, you can use `process.env.SOMETHING` to replace in the code below the _'sk_test_SOMETHINGSECRET'_ if you do not want to hardcode it. It might be helpful to keep your development/production Stripe API Key somewhere else.
+
+```js:index.js
+export default (router, { services, exceptions, database, schema, logger }) => {
+  const stripe = require('stripe')('sk_test_SOMETHINGSECRET')
+  const endpointSecret = 'whsec_SOMETHINGSECRET'
+
+  router.post('/', async (req, res) => {
+    // MAIN DIFFERENCE WITH STRIPE EXAMPLE
+    let event = req.rawBody
+
+    // Only verify the event if you have an endpoint secret defined.
+    // Otherwise use the basic event deserialized with JSON.parse
+    if (endpointSecret) {
+      // Get the signature sent by Stripe
+      const signature = req.headers['stripe-signature']
+      try {
+        event = stripe.webhooks.constructEvent(
+          req.rawBody, // MAIN DIFFERENCE WITH STRIPE EXAMPLE
+          signature,
+          endpointSecret
+        )
+      } catch (err) {
+        console.log(`⚠️  Webhook signature verification failed.`, err.message)
+        return res.sendStatus(400)
+      }
+    }
+    // ...
+  }
+}
+```
+
 ### Preparing Directus' services
 
-### The events we are listening to, and why
+I need two Directus services for this part:
+
+- ItemServices, to retrieve data from the database. I create 3 services linked to the tables "customer_details", "customer_subscriptions", and "subscription_items". I use them in the Handler.
+- MailServices, to send to the customers emails regarding their subscriptions. It is based on NodeMailer, and you can implement mail templates with it. This is the solution I use.
+
+So in index.js, I call the Directus services and instantiate a few one as follow:
+
+```js:index.js
+export default (router, { services, exceptions, database, schema, logger }) => {
+  router.post('/', async (req, res) => {
+    // The Stripe configuration here
+    // ...
+
+    const { ItemsService, MailService } = services;
+    const { ServiceUnavailableException } = exceptions;
+
+    const mailer = new MailService({ schema, knex: database });
+
+    const customerDetailsService = new ItemsService("customer_details", {
+      schema: req.schema,
+    });
+    const customerSubscriptionService = new ItemsService(
+      "customer_subscriptions",
+      {
+        schema: req.schema,
+        accountability: {
+          role: "admin",
+          admin: true,
+        },
+      }
+    );
+    const subscriptionItemService = new ItemsService("subscription_items", {
+      schema: req.schema,
+      accountability: {
+        role: "admin",
+        admin: true,
+      },
+    });
+
+    // ...
+  }
+}
+```
+
+### The events to listen to, and why
+
+Since we are in a SaaS situation, we deal with subscriptions. If there is only one critic I have regarding the Stripe documentation, is that it does not give you the order of the webhooks that are sent. Or maybe I missed it. I might be guilty of that.
+
+I did not find this information whereas I think it is quite useful to know to build the webhooks handler, so here it is. (I used the timeclock function of Stripe to generate tests here. So if you see things related to it, you can omit them).
+
+#### When you receive your first subscription
+
+![List of the first subscription events](/static/images/directus-stripe-part-4/stripe-first-sub-order.webp)
+
+What is important for the subscription, is to get the `customer.subscription.created` event. With this event you know a Customer subscribed to a trial period.
+
+For me personnaly, I do not care about the invoices, and the Customer update.
+
+<div className="mb-4 rounded-lg bg-orange-100 px-4 pt-4 pb-2 text-orange-700 dark:bg-orange-200 dark:text-orange-800">
+  <p className="m-0 pb-0 text-lg font-medium">Information</p>
+  <p className="m-0 pt-0 text-lg">
+    Please be aware that regarding the differences between what your Customer entered in the Stripe
+    Checkout form, and the informations you gave Stripe when creating the Stripe Customer, the
+    `customer.update` event might be useful for you.
+  </p>
+  <p className="m-0 pt-0 text-lg">
+    Stripe updates its information about Customer regarding what the Customer entered in the
+    Checkout form, and erases what you gave. Checking the event can give you this information.
+  </p>
+  <p className="m-0 pt-0 text-lg">
+    Also, if you did not create a Stripe Customer manually before this, or you do not provide the
+    `Stripe Customer ID` to the checkout session, a new `Stripe Customer ID` will be created.
+  </p>
+</div>
+
+#### When your customer reaches the end of her trial period
+
+![List of the end of the trial period events](/static/images/directus-stripe-part-4/stripe-trial-will-end.webp)
+
+You can probably dismiss this one, since Stripe is supposed to send a mail to the Customers directly to remind them their trial periods are about to end.
+
+However, I decided to listen to `customer.subscription.trial_will_end`, and to send my Customer my own email (which goes in addition to the Stripe's one). Plus, I also send myself an email, to be sure to check what is going to happen in the next three days. Or to call my Customer and ask questions about the product... please stay 🙏
+
+#### When your customer pays
+
+![List of the payment events](/static/images/directus-stripe-part-4/stripe-subscription-payment.webp)
+
+At this point, my Customer did stay. I want to retrieve the content of `invoice.paid` which means exactly what it means. With it, I know that I can give access to my app. So I can update the `stripe_subscription_status` in my database that I read to know if the Customer can access the app.
+
+I also want to retrieve the information in `customer.subscription.updated` since it is the only place I can retrieve the end date of the current subscription, and the type of subscription (month or annual payments). It is important if you have several plans to check it, because this is where you will find the information.
+
+#### When your customer ends her subscription
+
+![List of the cancelation events](/static/images/directus-stripe-part-4/stripe-subscription-deleted.webp)
+
+I want to listen to `customer.subscription.deleted` to send a goodbye email, and also check if I end the access to the Customer right now (cases when your customer did not pay for the month, and 3 days after the invoice is sent, canceled the subscription), or at the end of a period (the Customer paid for the month and canceled during the month. She needs to have access until the end of the month).
 
 ### The handler
