@@ -1,9 +1,9 @@
 ---
 title: 'Building a SaaS with Directus and Stripe: Part 4, Stripe Webhooks.'
-date: '2022-12-04'
-lastmod: '2022-12-04'
+date: '2022-12-11'
+lastmod: '2022-12-11'
 tags: ['directus', 'stripe', 'saas']
-draft: true
+draft: false
 summary: "Let's build the Stripe Webhooks endpoint used for a SaaS, built with Directus and Stripe Billing."
 authors: ['default']
 canonicalUrl: https://rphl.dev/blog/building-saas-with-directus-and-stripe-part4
@@ -12,3 +12,158 @@ canonicalUrl: https://rphl.dev/blog/building-saas-with-directus-and-stripe-part4
 ## Context
 
 See [Part 1](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part1) for Context details.
+
+This series is structured as follows:
+
+1. The design of the app, [part 1](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part1)
+2. The database, [part 2](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part2)
+3. Directus flow, [part 3](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part3)
+4. Stripe webhooks [this post]
+
+Here we will focus on the Stripe Webhooks implementation.
+
+As mentioned in our [Part 1](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part1), we want the following processes for user registration:
+
+> 5. I do not want to handle the payment informations of my clients, so I let Stripe handle this part. It will have some consequences on the type of billing available.
+> 6. I want the trial period to start only after the Customer added her payment information in Stripe.
+> 7. I do not need to start billing at a particular date in a month.
+> 8. The app must communicate with Stripe to know when a Customer can or cannot access the app regarding her payment status. So I will tackle in this series the webhooks part in-depth.
+
+I used two Flows here to handle these requirements. The first one sends an email with an activation link. The second one creates a new Stripe Customer when the activation link is clicked.
+
+<TOCInline toc={props.toc} asDisclosure toHeading={3} />
+<br />
+
+## Stripe implementation in the frontend
+
+### Quick description
+
+I do not have a part where I explain precisely how I integrate Stripe in my frontend. For this part, I believe there is already plainty of resources, especially on the Stripe documentation for the Next.js part, which is my front.
+
+I decided to go with the Stripe Checkout implementation and followed a mix of this [how-to](https://stripe.com/docs/checkout/quickstart?client=next) for the Checkout and [this one](https://stripe.com/docs/billing/quickstart?client=react) to customize the parameters for the billing process.
+
+This implementation, if done properly secures these three requirements:
+
+> 5. I do not want to handle the payment informations of my clients, so I let Stripe handle this part. It will have some consequences on the type of billing available.
+
+Using Stripe Checkout and never ask Stripe about the payment details tackles this.
+
+> 6. I want the trial period to start only after the Customer added her payment information in Stripe.
+
+If you want this feature, it is quite simple: never create yourself the subscription for your customer. Just send them to Stripe Checkout when they select the product they want to buy. Stripe will ask for all the details before giving the trial period.
+
+> 7. I do not need to start billing at a particular date in a month.
+
+This is the current default (at least at the time I publish this post): you cannot add a start date for the billing period when you use Stripe Checkout.
+
+However, it appears you can [modify a current subscription](https://stripe.com/docs/billing/subscriptions/billing-cycle) to achieve this goal. I try to think about it, and did not come up with something appealing enough to my taste, and did not find anything about that on our vast world wild web...
+
+### Do not forget to pass the Stripe Customer ID
+
+What is important to remember if you followed this guide, is to pass to Stripe Checkout the `Stripe Customer ID` of the customer to the `checkout_session`, since your customer already have one. If you do not, then Stripe will create a new `Customer ID` at payment and will send it back to you. But for your specific customer, it will be as if she did not pay.
+
+The parameters for the checkout session look like this:
+
+```js:checkout.js
+// the Stripe Customer ID that already exists is given by
+// req.body.customerId
+var params = {
+    mode: "subscription",
+    payment_method_types: payment_method_types,
+    metadata: { price_id: priceId },
+    line_items: [line_item],
+    success_url: `${req.headers.origin}/payment/result?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${req.headers.origin}/payment/cancel-subscription-process`,
+    client_reference_id: req.body.customerId,
+    currency: "EUR",
+    customer: req.body.customerId,
+    billing_address_collection: "required",
+    locale: "fr",
+    customer_update: {
+        name: "auto",
+        address: "auto",
+    },
+    tax_id_collection: {
+        enabled: true,
+    },
+};
+if (daysOfTrial)
+    params["subscription_data"] = {
+        trial_period_days: daysOfTrial,
+    };
+const checkoutSession = await stripe.checkout.sessions.create(params);
+```
+
+## Layout of the Directus extensions
+
+You can find how to create an extension on the
+[Directus documentation](https://docs.directus.io/extensions/creating-extensions.html).
+
+However, one thing it does not tell you, is what happens when you use their `npm init directus-extension`. Well it creates a specific folder with some pre-built files. One thing is, since it will have a `/src` and a `/dist` folders, you do not want to put them inside your `/directus/extensions/endpoints/your-endpoint` folder.
+
+The way I do it is I create the extension with the `npm init directus-extension` at the root of my `/directus` folder. Then, when I build my extension, I place the result of the `/dist` folder where they need to. It might not be the best option, but at least on my computer everything for directus is at the same place.
+
+At the end of this part 4, my directus folder looks like:
+
+```
+.
+├── node_modules
+├── uploads
+├── extensions                          # All your extensions
+|   ├── endpoints                       # Listener for the Stripe webhooks
+|   |   └── stripe-webhook
+|   |       └── index.js
+|   └── hooks                           # Your custom hook using a middleware to retrieve the raw request body
+|       └── stripe-webhook-middleware
+|           └── index.js
+├── stripe-webhook                      # Listener for the Stripe webhooks
+|   ├── dist
+|   └── src
+├── stripe-webhook-middleware           # Middleware to modify the Stripe response
+|   ├── dist
+|   └── src
+└── .env
+```
+
+If you want to replicate this, you need to create two extensions:
+
+- the _stripe-webhook-middleware_ which is a **Hook** extension.
+  This extension is needed to transform what Stripe sends you into a raw format.
+- the _stripe-webhook_ which is an **Endpoint** extension.
+  This is where I handle what Stripe sends me.
+
+## Building the stripe-webhook-middleware hook
+
+I did a post on this particular topic: [read it](https://rphl.dev/blog/create-stripe-webhook-listener-directus). You absolutly need this extension otherwise you will not be able to use `stripe-js`.
+
+The role of this Hook extension is to ensure that the request.body is the raw request body.
+
+## Building a Stripe Webhooks endpoint
+
+> 8. The app must communicate with Stripe to know when a Customer can or cannot access the app regarding her payment status. So I will tackle in this series the webhooks part in-depth.
+
+### Creating the stripe-webhook endpoint development folder
+
+I used `npm init directus-extension` and installed `stripe-js` for the endpoint (if you follow this guide, I use JavaScript and not TypeScript. You will be asked to pick one when you use the `npm init directus-extension`).
+
+Then I created 2 files:
+
+- `index.js`, where I configure Stripe and prepare all the Directus Services I will need, and dispatch the event to the proper handling function
+- `handler.js`, where I create a Handler which will act accordingly to the event.
+
+<div className="mb-4 rounded-lg bg-orange-100 px-4 pt-4 pb-2 text-orange-700 dark:bg-orange-200 dark:text-orange-800">
+  <p className="m-0 pb-0 text-lg font-medium">Information</p>
+  <p className="m-0 pt-0 text-lg">
+    Please note that you can, when building Directus extensions use `process.env.YOURVALUE` which
+    refers to variables inside the `.env` file of Directus (not of the extension). Useful to put
+    some Stripe API key for example.
+  </p>
+</div>
+
+### Stripe's configuration
+
+### Preparing Directus' services
+
+### The events we are listening to, and why
+
+### The handler

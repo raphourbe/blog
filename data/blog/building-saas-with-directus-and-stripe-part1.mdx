@@ -1,7 +1,7 @@
 ---
 title: 'Building a SaaS with Directus and Stripe: Part 1, design.'
 date: '2022-11-26'
-lastmod: '2022-12-04'
+lastmod: '2022-12-11'
 tags: ['directus', 'stripe', 'saas']
 draft: false
 summary: "I just released a SaaS product for my company, and I built it with Directus and leveraged Stripe Billing. Let's take a look at the design of the app."
@@ -25,7 +25,7 @@ I want to focus on 4 things in this 4-part series of posts:
 1. The design of the app [this post]
 2. The database, [part 2](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part2)
 3. Directus flow, [part 3](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part3)
-4. Stripe webhooks
+4. Stripe webhooks, [part 4](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part4)
 
 I used directus version 9.18 to build it, and stripe API version "2022-08".
 
@@ -122,7 +122,8 @@ database and send the proper emails to the customers.
 
 You can find a kick way of doing it in my post:
 [Listen to Stripe webhooks with Directus.](https://rphl.dev/blog/create-stripe-webhook-listener-directus), but I
-will do a more complete explanation in the part 3 of this series. Indeed, if Stripe is really easy to use and the
+do a complete explanation in the [part 4](https://rphl.dev/blog/building-saas-with-directus-and-stripe-part4) of this series.
+Indeed, if Stripe is really easy to use and the
 documentation is really great, I found it a little blurry when it comes to handling webhooks.
 
 ### Database part
