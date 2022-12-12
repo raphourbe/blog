@@ -1,7 +1,7 @@
 ---
 title: 'Building a SaaS with Directus and Stripe: Part 4, Stripe Webhooks.'
-date: '2022-12-11'
-lastmod: '2022-12-11'
+date: '2022-12-12'
+lastmod: '2022-12-12'
 tags: ['directus', 'stripe', 'saas']
 draft: false
 summary: "Let's build the Stripe Webhooks endpoint used for a SaaS, built with Directus and Stripe Billing."
@@ -29,7 +29,7 @@ As mentioned in our [Part 1](https://rphl.dev/blog/building-saas-with-directus-a
 > 7. I do not need to start billing at a particular date in a month.
 > 8. The app must communicate with Stripe to know when a Customer can or cannot access the app regarding her payment status. So I will tackle in this series the webhooks part in-depth.
 
-I used two Flows here to handle these requirements. The first one sends an email with an activation link. The second one creates a new Stripe Customer when the activation link is clicked.
+Here I explain how I created two Directus extensions to handle the Stripe webhooks. It is quite a long post as I explain my choices and functions. At the end, you should have a good understanding of how Stripe webhooks work, and which one are important to check for a subscription product.
 
 <TOCInline toc={props.toc} asDisclosure toHeading={3} />
 <br />
@@ -38,7 +38,7 @@ I used two Flows here to handle these requirements. The first one sends an email
 
 ### Quick description
 
-I do not have a part where I explain precisely how I integrate Stripe in my frontend. For this part, I believe there is already plainty of resources, especially on the Stripe documentation for the Next.js part, which is my front.
+I do not have a part where I explain precisely how I integrate Stripe in my frontend. For this part, I believe there is already plenty of resources, especially on the Stripe documentation for the Next.js part, which is my front.
 
 I decided to go with the Stripe Checkout implementation and followed a mix of this [how-to](https://stripe.com/docs/checkout/quickstart?client=next) for the Checkout and [this one](https://stripe.com/docs/billing/quickstart?client=react) to customize the parameters for the billing process.
 
@@ -50,17 +50,17 @@ Using Stripe Checkout and never ask Stripe about the payment details tackles thi
 
 > 6. I want the trial period to start only after the Customer added her payment information in Stripe.
 
-If you want this feature, it is quite simple: never create yourself the subscription for your customer. Just send them to Stripe Checkout when they select the product they want to buy. Stripe will ask for all the details before giving the trial period.
+If you want this feature, it is quite simple: never create yourself the subscription for your customers. Just send them to Stripe Checkout when they select the product they want to buy. Stripe will ask for all the details before giving the trial period.
 
 > 7. I do not need to start billing at a particular date in a month.
 
 This is the current default (at least at the time I publish this post): you cannot add a start date for the billing period when you use Stripe Checkout.
 
-However, it appears you can [modify a current subscription](https://stripe.com/docs/billing/subscriptions/billing-cycle) to achieve this goal. I try to think about it, and did not come up with something appealing enough to my taste, and did not find anything about that on our vast world wild web...
+However, it appears you can [modify a current subscription](https://stripe.com/docs/billing/subscriptions/billing-cycle) to achieve this goal. I tried to find a way, but I did not come up with something appealing enough, and I did not find anything about that on our vast world wild web...
 
 ### Do not forget to pass the Stripe Customer ID
 
-What is important to remember if you followed this guide, is to pass to Stripe Checkout the `Stripe Customer ID` of the customer to the `checkout_session`, since your customer already have one. If you do not, then Stripe will create a new `Customer ID` at payment and will send it back to you. But for your specific customer, it will be as if she did not pay.
+What is important to remember if you followed this guide, is to pass to Stripe Checkout the `Stripe Customer ID` of the customer to the `checkout_session`, since your customer already have one. If you do not, then Stripe will create a new `Customer ID` at payment and will send it back to you. So for your already registered customer, it will be as if she did not pay.
 
 The parameters for the checkout session look like this:
 
@@ -94,12 +94,14 @@ if (daysOfTrial)
 const checkoutSession = await stripe.checkout.sessions.create(params);
 ```
 
+I retrieve the parameter `daysOfTrial` that you see here from my database by the way (from the _subscription_items_ table for those of you who are using the same tables as I do).
+
 ## Layout of the Directus extensions
 
 You can find how to create an extension on the
 [Directus documentation](https://docs.directus.io/extensions/creating-extensions.html).
 
-However, one thing it does not tell you, is what happens when you use their `npm init directus-extension`. Well it creates a specific folder with some pre-built files. One thing is, since it will have a `/src` and a `/dist` folders, you do not want to put them inside your `/directus/extensions/endpoints/your-endpoint` folder.
+What happens when you use the `npm init directus-extension` is that it creates a specific folder with some pre-built files related to the type of extension you want to create. One thing is, since it will have a `/src` and a `/dist` folders, you do not want to put them inside your `/directus/extensions/endpoints/your-endpoint` folder.
 
 The way I do it is I create the extension with the `npm init directus-extension` at the root of my `/directus` folder. Then, when I build my extension, I place the result of the `/dist` folder where they need to. It might not be the best option, but at least on my computer everything for directus is at the same place.
 
@@ -146,23 +148,23 @@ The role of this Hook extension is to ensure that the request.body is the raw re
 
 I used `npm init directus-extension` and installed `stripe-js` for the endpoint (if you follow this guide, I use JavaScript and not TypeScript. You will be asked to pick one when you use the `npm init directus-extension`).
 
-Then I created 2 files:
+Then, I created 2 files:
 
-- `index.js`, where I configure Stripe and prepare all the Directus Services I will need, and dispatch the event to the proper handling function
-- `handler.js`, where I create a Handler which will act accordingly to the event.
+- `index.js`, where I configure Stripe and prepare all the Directus Services I will need, and dispatch the events to the proper handling function.
+- `handler.js`, a Handler which will act accordingly to the event.
 
 You will find the [complete files on the github repo](https://github.com/raphourbe/blog/tree/main/public/static/code/stripe-webhook-endpoint) of this blog if you want to copy/paste them.
 
 <div className="mb-4 rounded-lg bg-orange-100 px-4 pt-4 pb-2 text-orange-700 dark:bg-orange-200 dark:text-orange-800">
   <p className="m-0 pb-0 text-lg font-medium">Information</p>
   <p className="m-0 pt-0 text-lg">
-    Please note that you can, when building Directus extensions use `process.env.YOURVALUE` which
+    Please note that you can, when creating Directus extensions, use `process.env.YOURVALUE` which
     refers to variables inside the `.env` file of Directus (not of the extension). Useful to put
     some Stripe API key for example.
   </p>
 </div>
 
-### Stripe's configuration
+### Stripe configuration
 
 For this part, the Stripe documentation is properly done. If you read the full post to [create the stripe-webhook-middleware](https://rphl.dev/blog/create-stripe-webhook-listener-directus), you already have it.
 
@@ -204,8 +206,8 @@ export default (router, { services, exceptions, database, schema, logger }) => {
 
 I need two Directus services for this part:
 
-- ItemServices, to retrieve data from the database. I create 3 services linked to the tables _"customer_details"_, _"customer_subscriptions"_, and _"subscription_items"_. I use them in the Handler.
-- MailServices, to send to the customers emails regarding their subscriptions. It is based on NodeMailer, and you can implement mail templates with it. This is the solution I use.
+- **ItemServices**, to retrieve data from the database. I create 3 services linked to the tables _"customer_details"_, _"customer_subscriptions"_, and _"subscription_items"_. I use them in the Handler.
+- **MailServices**, to send to the customers emails regarding their subscriptions. It is based on NodeMailer, and you can implement mail templates with it. This is the solution I use.
 
 So in `index.js`, I call the Directus services and instantiate a few one as follow:
 
@@ -250,7 +252,7 @@ export default (router, { services, exceptions, database, schema, logger }) => {
 
 Since we are in a SaaS situation, we deal with subscriptions. If there is only one critic I have regarding the Stripe documentation, is that it does not give you the order of the webhooks that are sent. Or maybe I missed it. I might be guilty of that.
 
-I did not find this information whereas I think it is quite useful to know to build the webhooks handler, so here it is. (I used the timeclock function of Stripe to generate tests here. So if you see things related to it, you can omit them).
+I did not find this information whereas I think it is quite useful to know to build the webhooks handler, so here it is. (I used the test clock function of Stripe to generate tests here. So if you see things related to it, you can omit them).
 
 #### When you receive your first subscription
 
@@ -265,7 +267,7 @@ For me personnaly, I do not care about the invoices, and the Customer update.
   <p className="m-0 pt-0 text-lg">
     Please be aware that regarding the differences between what your Customer entered in the Stripe
     Checkout form, and the informations you gave Stripe when creating the Stripe Customer, the
-    `customer.update` event might be useful for you.
+    `customer.updated` event might be useful for you.
   </p>
   <p className="m-0 pt-0 text-lg">
     Stripe updates its information about Customer regarding what the Customer entered in the
@@ -291,13 +293,13 @@ However, I decided to listen to `customer.subscription.trial_will_end`, and to s
 
 At this point, my Customer did stay. I want to retrieve the content of `invoice.paid` which means exactly what it means. With it, I know that I can give access to my app. So I can update the `stripe_subscription_status` in my database that I read to know if the Customer can access the app.
 
-I also want to retrieve the information in `customer.subscription.updated` since it is the only place I can retrieve the end date of the current subscription, and the type of subscription (month or annual payments). It is important if you have several plans to check it, because this is where you will find the information.
+I also want to retrieve the information in `customer.subscription.updated` since it is the only place where I can retrieve the end date of the current subscription, and the type of subscription (month or annual payments). It is important if you have several plans to check it, because this is where you will find the information.
 
 #### When your customer ends her subscription
 
 ![List of the cancelation events](/static/images/directus-stripe-part-4/stripe-subscription-deleted.webp)
 
-I want to listen to `customer.subscription.deleted` to send a goodbye email, and also check if I end the access to the Customer right now (cases when your customer did not pay for the month, and 3 days after the invoice is sent, canceled the subscription), or at the end of a period (the Customer paid for the month and canceled during the month. She needs to have access until the end of the month).
+I want to listen to `customer.subscription.deleted` to send a goodbye email, and also check if I end the access to the Customer right now (cases when your customer did not pay for the month, and 3 days after the invoice is sent, cancelled the subscription), or at the end of a period (the Customer paid for the month and cancelled during the month. She needs to have access until the end of the month).
 
 #### When there is a problem
 
@@ -312,12 +314,43 @@ My handler is an Object that contains how to handle the various events Stripe se
 I initialize the `Handler` in the `index.js` file, and do a `switch case` to select the event and the function.
 
 ```js:index.js
+const handler = new Handler(
+  logger,
+  customerDetailsService,
+  customerSubscriptionService,
+  subscriptionItemService,
+  mailer,
+  ServiceUnavailableException
+)
+var handlerRes = false
 
+// Handle the event
+console.log('Event: ', event.type)
+switch (event.type) {
+  case 'customer.subscription.created':
+    // OK: add customer_subscriptions in trialing.
+    const subscriptionCreated = event.data.object
+    handlerRes = await handler.handleSubscriptionCreated(subscriptionCreated)
+
+    if (handlerRes)
+      logger.info(
+        `Creating a Subscription object for ${subscriptionCreated.customer}
+        was successful!`
+      )
+    else
+      logger.info(
+        `Problem during the process of subscription creation for
+        ${subscriptionCreated.customer}.`
+      )
+    break
+// continue
 ```
+
+You will find that in the Handler there is a lot of `console.log` and I do not use the `logger`. I found it to be not that useful compared to a simple `console.log`.
 
 #### New subscription
 
-A new subscription can happen in two cases: (1) the Customer is new, so we do not have any row for her in the _customer_subscriptions_ table, or (2) she had a subscription, canceled it, then renew it. In this second case, we already have a row for her in database, so we need to update it.
+A new subscription can happen in two cases: (1) the Customer is new, so we do not have any row for her in the _customer_subscriptions_ table, or (2) she had a subscription, cancelled it, then renew it. In this second case, we already have a row for her in database, so we need to update it.
 
 This is what you will find in the `handleSubscriptionCreated` function, which is `async` by the way.
 
@@ -419,3 +452,380 @@ async handleSubscriptionCreated(data) {
   }
 }
 ```
+
+#### Handling invoice.paid
+
+The aim here is to set the `stripe_subscription_status` of our _customer_subscriptions_ table to `active`, so we allow the Customer to access our app.
+
+<div className="mb-4 rounded-lg bg-orange-100 px-4 pt-4 pb-2 text-orange-700 dark:bg-orange-200 dark:text-orange-800">
+  <p className="m-0 pb-0 text-lg font-medium">Information</p>
+  <p className="m-0 pt-0 text-lg">
+    Be aware that Stripe create an invoice that is of 0 euro/dollar/whatever currency you use for
+    the trial period. This means that you will receive an event: `invoice.paid` when a Customer
+    start a new trial. So you have to be careful and avoid switching the `stripe_status` to `active`
+    when it should be `trialing`.
+  </p>
+</div>
+
+```js:handler.js
+ async handleInvoicePaid(data) {
+  // Allow the customer to access our data, by updating "stripe_status"
+  // in the customer_subscriptions table to active.
+  // If trialing + trial_ends_at < invoice.created => stripe_status = active
+  // Else => do nothing (it's the first invoice)
+
+  console.log('Enter: handleInvoicePaid')
+  try {
+    // Retrieve the correct customer_subscriptions row.
+    const customerDetails = await this.getCustomerDetails(data.customer)
+    const customerSubscription = await this.getCustomerSubscription(customerDetails.id)
+
+    if (customerSubscription.length == 0) {
+      // There is no customerSubscription item yet. It means it's the first
+      // invoice for the trial period.
+      // customerSubscription item creation is handled with the webhook
+      // customer.subscription.created
+      console.log('There is no customerSubscription item yet.')
+      return true
+    }
+
+    if (customerSubscription[0].stripe_subscription_status == 'trialing') {
+      if (new Date(customerSubscription[0].trial_ends_at) <= new Date(data.created * 1000)) {
+        console.log('Trial period is over. The customer just paid.')
+      } else {
+        console.log('Trial period is not over yet. This should not happen.')
+        await this.mailService.send({
+          to: 'mail@mail.fr',
+          subject: 'Log Stripe: Invoice paid BUT',
+          template: {
+            name: 'admin-warning',
+            data: {
+              eventName: 'invoice.paid',
+              customerEmail: customerDetails.user_id.email,
+              action:
+                'An invoice has been paid but something went wrong anyway. Check this customer.',
+              invoiceId: data.id,
+            },
+          },
+        })
+        return true
+      }
+    }
+
+    console.log('Update stripe_subscription_status to active.')
+    // We do not modify the end date of the subscription because we do not
+    // have the info in the data received. This is done in the
+    // customer.subscription.update webhook handling.
+    var item = {
+      stripe_subscription_status: 'active',
+    }
+    this.customerSubscriptionService.updateOne(customerSubscription[0].id, item)
+
+    console.log('Exit with no error: handleInvoicePaid')
+    return true
+  } catch (error) {
+    console.log('Exit with error: handleInvoicePaid')
+    console.log(error)
+    return false
+  }
+}
+```
+
+#### Handling payment problem
+
+This happens when you receive a `invoice.payment_action_required`. Maybe there are other cases you want to handle. I only check this one. If this event happens, I send the Customer and myself an email.
+
+In the meantime, I block the access to the app by checking for the event: `customer.subscription.update`. We will see it in the next paragraph.
+
+```js:handler.js
+async handleInvoicePaymentActionRequired(data) {
+  // Problem with a payment. We inform admin + customer via email.
+  console.log('Enter: handleInvoicePaymentActionRequired')
+  try {
+    // Retrieve the correct customer_subscriptions row.
+    const customerDetails = await this.getCustomerDetails(data.customer)
+    const customerSubscription = await this.getCustomerSubscription(customerDetails.id)
+    const subscriptionItem = await this.getSubscriptionItem(
+      customerSubscription[0].subscription_items
+    )
+
+    // Do an action only if a Subscription already exists for the user
+    if (customerSubscription.length > 0) {
+      console.log(`Payment Action required for ${customerDetails.user_id.email}`)
+
+      try {
+        // Send email to client
+        console.log('Send mail to ', customerDetails.user_id.email)
+        await this.mailService.send({
+          to: customerDetails.user_id.email,
+          subject: 'Waiting for payment',
+          template: {
+            name: 'payment-required',
+            data: {
+              firstName: customerDetails.user_id.first_name,
+            },
+          },
+        })
+
+        // Send email to admin to put a warning
+        await this.mailService.send({
+          to: 'you@mail.com',
+          subject: 'Log Stripe: payment_action_required',
+          template: {
+            name: 'admin-warning',
+            data: {
+              eventName: 'invoice.payment_action_required',
+              userEmail: customerDetails.user_id.email,
+              action: `Problem with payment.`,
+              invoiceId: data.id,
+            },
+          },
+        })
+      } catch (error) {
+        console.log(error)
+        console.log('Exit with error for mail: handleInvoicePaymentActionRequired')
+        return false
+      }
+    }
+
+    console.log('Exit with no error: handleInvoicePaymentActionRequired')
+    return true
+  } catch (error) {
+    console.log('Exit with error: handleInvoicePaymentActionRequired')
+    console.log(error)
+    return false
+  }
+}
+```
+
+#### Handling the customer.subscription.update event
+
+This is probably the most important event. It is fired quite often, so you have to handle it properly. It occurs whenever there is a change. The cases it handles here are:
+
+- Handling a Customer going from `trialing` to `active`.
+- Handling a Customer going from `active` to any other status.
+- Handling a plan switching (going from monthly payments to annual payments for example).
+- It gives you the end date of the current subscription.
+
+There is a lot of comments in this one, so you can read it directly.
+
+```js:handler.js
+async handleSubscriptionUpdated(data) {
+  // Occurs whenever a subscription changes (e.g., switching from one plan to
+  // another, or changing the status from trial to active).
+  // Also gives the end date of the current subscription !
+  console.log('Enter: handleSubscriptionUpdated')
+  const customerDetails = await this.getCustomerDetails(data.customer)
+  const customerSubscription = await this.getCustomerSubscription(customerDetails.id)
+
+  // Update the records in DB.
+  // If the subscription is switched to active, it means the customer just
+  // paid so we can use the current_period_end to know until when the
+  // subscription is active.
+  // If the subscription status is switched to past_due, incomplete, or
+  // cancelled, we do not want to register the end-date, that needs to be the
+  // last current_period_end associated with a status="active".
+  console.log(`Update stripe_subscription_status to ${data.status}`)
+  var item = {
+    stripe_subscription_status: data.status,
+  }
+  // Parse response to know if there is a plan switch
+  // Get the price_id of the plan
+  const subscriptionItem = await this.getSubscriptionItemFromPriceId(data.plan.id)
+  // Compare with our DB record
+  // Do nothing or get the plan relative to the new price_id.
+  if (customerSubscription[0].subscription_items.id !== subscriptionItem.id) {
+    // Not the correct plan !
+    item.subscription_items = subscriptionItem.id
+  }
+
+  if (data.status === 'active') {
+    const endsAt = this.getDateToString(new Date(data.current_period_end * 1000))
+    console.log(`End period set to ${endsAt}.`)
+    item.ends_at = endsAt
+  }
+
+  this.customerSubscriptionService.updateOne(customerSubscription[0].id, item)
+
+  // Send the email to admin
+  try {
+    console.log('Send mail to XXX@mail.com')
+    await this.mailService.send({
+      to: 'XXX@mail.com',
+      subject: 'Log Stripe: subscription update',
+      template: {
+        name: 'admin-warning',
+        data: {
+          eventName: 'customer.subscription.updated',
+          customerEmail: customerDetails.user_id.email,
+          action: `Update status for ${customerDetails.user_id.email}
+              to ${data.status}.`,
+          invoiceId: '',
+        },
+      },
+    })
+  } catch (error) {
+    console.log(error)
+    console.log('Exit: handleSubscriptionUpdated')
+    return false
+  }
+
+  console.log('Exit: handleSubscriptionUpdated')
+  return true
+}
+```
+
+#### Handling the trial will end
+
+It is quite a simple one, just send an email to the customer and to the admin as a reminder. Since it is easy, I let you some French in it. Since I have two plans (monthly and annualy), I send the information of the Customer's selected plan as a reminder.
+
+```js:handler.js
+async handleSubscriptionTrialWillEnd(data) {
+  // Webhook that informs us that in 3 days the trial will end.
+  // We should send a mail to the customer and to admin to
+  // inform us.
+  console.log('Enter: handleSubscriptionTrialWillEnd')
+  // Send the email to admin
+  try {
+    const customerDetails = await this.getCustomerDetails(data.customer)
+    const customerSubscription = await this.getCustomerSubscription(customerDetails.id)
+
+    const subscriptionItem = await this.getSubscriptionItemFromId(
+      customerSubscription[0].subscription_items
+    )
+
+    console.log('Send mail to ', customerDetails.user_id.email)
+    // parameters are based on yearly service directly
+    let period = 'annuel'
+    let pricePerPeriod = `${subscriptionItem.stripe_price} € HT par an`
+    let engagement = 'engagement sur un an'
+    if (subscriptionItem.billing_interval == 'month') {
+      period = 'mensuel'
+      pricePerPeriod = `${subscriptionItem.stripe_price} € HT par mois`
+      engagement = 'sans engagement'
+    }
+    await this.mailService.send({
+      to: customerDetails.user_id.email,
+      subject: "Votre période d'essai se termine dans 3j",
+      template: {
+        name: 'trial-end-soon',
+        data: {
+          firstName: customerDetails.user_id.first_name,
+          daysOfTrial: subscriptionItem.days_of_trial,
+          period: period,
+          engagement: engagement,
+          pricePerPeriod: pricePerPeriod,
+        },
+      },
+    })
+
+    // Send mail to admin
+    console.log('Send mail to admin')
+    await this.mailService.send({
+      to: 'admin@something.fr',
+      subject: 'Log Stripe: trial will end',
+      template: {
+        name: 'admin-warning',
+        data: {
+          eventName: 'customer.subscription.trial_will_end',
+          customerEmail: customerDetails.user_id.email,
+          action: "Vérifier que le mail de fin de période d'essai a bien été envoyé.",
+          invoiceId: '',
+        },
+      },
+    })
+  } catch (error) {
+    console.log(error)
+    console.log('Exit: handleSubscriptionTrialWillEnd')
+    return false
+  }
+
+  console.log('Exit: handleSubscriptionTrialWillEnd')
+  return true
+}
+```
+
+#### Handling subscription deleted
+
+Here we send an email to our Customer to confirm that the subscription has been deleted. I also the update `stripe_customer_status` to `cancelled` here, since it is a `customer.subscription.deleted` event.
+
+I also check the former status of the Customer here, to make the proper action: end the access to the app now, or not (case of an ongoing plan that is cancelled in the middle for example). To be honest, I do not remember if this is really useful.
+
+```js:handler.js
+async handleSubscriptionDeleted(data) {
+    // Webhook that informs us that the subscription has been cancelled.
+    // We should update the stripe_subscription_status to cancelled.
+    // We should send a mail to the customer and to admin to
+    // inform us.
+
+    console.log('Enter: handleSubscriptionDeleted')
+    // Send the email to admin
+    try {
+      const customerDetails = await this.getCustomerDetails(data.customer)
+      const customerSubscription = await this.getCustomerSubscription(customerDetails.id)
+
+      var item = {
+        stripe_subscription_status: 'cancelled',
+        ends_at: customerSubscription[0].ends_at,
+      }
+
+      // If the subscription was past_due or incomplete or in trial, then switch to cancelled
+      // because of non payment, we want to be sure that the endDate is now.
+      if (
+        ['trialing', 'past_due', 'incomplete', 'incomplete_expired', 'unpaid'].includes(
+          customerSubscription[0].stripe_subscription_status
+        )
+      ) {
+        console.log(`End period set to NOW: ${this.getDateToString(new Date())}.`)
+        item.ends_at = this.getDateToString(new Date())
+      }
+
+      // Update stripe_subscription_status to cancelled.
+      console.log('Update stripe_subscription_status to cancelled.')
+      this.customerSubscriptionService.updateOne(customerSubscription[0].id, item)
+
+      console.log('Send mail to ', customerDetails.user_id.email)
+      await this.mailService.send({
+        to: customerDetails.user_id.email,
+        subject: 'End of subscription',
+        template: {
+          name: 'subscription-deleted',
+          data: {
+            firstName: customerDetails.user_id.first_name,
+            endDate: item.ends_at,
+          },
+        },
+      })
+
+      // Send mail to admin
+      console.log('Send mail to admin')
+      await this.mailService.send({
+        to: 'admin@something.fr',
+        subject: 'Log Stripe: subscription deleted',
+        template: {
+          name: 'admin-warning',
+          data: {
+            eventName: 'customer.subscription.deleted',
+            customerEmail: customerDetails.user_id.email,
+            action: `Subscription will stop at: ${item.ends_at}`,
+            invoiceId: '',
+          },
+        },
+      })
+    } catch (error) {
+      console.log(error)
+      console.log('Exit: handleSubscriptionDeleted')
+      return false
+    }
+
+    console.log('Exit: handleSubscriptionDeleted')
+    return true
+  }
+}
+```
+
+## The end
+
+Well, here it is for this 4-part series. Again, the source code for the `index.js` and the `handler.js` file is [on my repo here](https://github.com/raphourbe/blog/tree/main/public/static/code/stripe-webhook-endpoint). Congrats to you if you arrive here... It was quite long!
+
+If you have any comment or question, please use the comment section right under this post. If my code is not beautiful for you, and you make a more classy version of it, please let me know. I would be happy to use it too!
