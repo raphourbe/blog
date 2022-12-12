@@ -460,7 +460,6 @@ export class Handler {
       console.log('Send mail to ', customerDetails.user_id.email)
       await this.mailService.send({
         to: customerDetails.user_id.email,
-        bcc: 'contact@allocation.primeview.fr',
         subject: 'Votre abonnement est terminé',
         template: {
           name: 'subscription-deleted',
