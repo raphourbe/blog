@@ -209,6 +209,8 @@ I need two Directus services for this part:
 - **ItemServices**, to retrieve data from the database. I create 3 services linked to the tables _"customer_details"_, _"customer_subscriptions"_, and _"subscription_items"_. I use them in the Handler.
 - **MailServices**, to send to the customers emails regarding their subscriptions. It is based on NodeMailer, and you can implement mail templates with it. This is the solution I use.
 
+You can find all the Services available in Directus in the [Directus repo](https://github.com/directus/directus/tree/main/api/src/services). Going into the files will show you which functions are available for each one of them.
+
 So in `index.js`, I call the Directus services and instantiate a few one as follow:
 
 ```js:index.js
@@ -357,6 +359,7 @@ This is what you will find in the `handleSubscriptionCreated` function, which is
 As you will notice in the function, I make use of [email templates](https://docs.directus.io/extensions/email-templates.html). If you need information on how to handle them, please let me know in the comments.
 
 ```js:handler.js
+// This function is inside the Handler class (see the repo for full code)
 async handleSubscriptionCreated(data) {
   // A subscription is created. Since, we are using trial periods,
   // we start with this webhook to create a subscription.
@@ -450,6 +453,24 @@ async handleSubscriptionCreated(data) {
     console.log('Exit with error when getting items in DB: handleSubscriptionCreated')
     return false
   }
+}
+
+// Example of how to use a Service to call my database.
+// All the helper functions are in the full handler.js file in my blog repo.
+async getCustomerDetails(stripe_customer_id) {
+  // Retrieve the customer details ID from the stripe customer ID.
+  return await this.customerDetailsService
+    .readByQuery(
+      {
+        filter: { stripe_id: { _eq: stripe_customer_id } },
+        fields: ["*", "user_id.first_name", "user_id.email"],
+      }
+    )
+    .then((results) => results[0])
+    .catch((error) => {
+      console.log("getCustomerDetails error", error.message);
+    }
+  );
 }
 ```
 
