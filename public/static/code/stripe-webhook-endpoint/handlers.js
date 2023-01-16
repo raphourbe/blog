@@ -337,6 +337,11 @@ export class Handler {
     // Send the email to admin
     try {
       console.log('Send mail to XXX@mail.com')
+      let message = `Status changed for ${customerDetails.user_id.email}
+               into ${data.status}.`
+      // Customer cancelled during the trial period.
+      if (data.cancel_at_period_end)
+        message = `${customerDetails.user_id.email} cancelled during trial.`
       await this.mailService.send({
         to: 'XXX@mail.com',
         subject: 'Log Stripe: subscription update',
@@ -345,8 +350,7 @@ export class Handler {
           data: {
             eventName: 'customer.subscription.updated',
             customerEmail: customerDetails.user_id.email,
-            action: `Update status for ${customerDetails.user_id.email}
-                to ${data.status}.`,
+            action: message,
             invoiceId: '',
           },
         },
@@ -385,36 +389,55 @@ export class Handler {
         pricePerPeriod = `${subscriptionItem.stripe_price} € HT par mois`
         engagement = 'sans engagement'
       }
-      await this.mailService.send({
-        to: customerDetails.user_id.email,
-        subject: "Votre période d'essai se termine dans 3j",
-        template: {
-          name: 'trial-end-soon',
-          data: {
-            firstName: customerDetails.user_id.first_name,
-            daysOfTrial: subscriptionItem.days_of_trial,
-            period: period,
-            engagement: engagement,
-            pricePerPeriod: pricePerPeriod,
+      // No end of trial period, so we expect the customer to pay in 3 days.
+      if (data.cancel_at_period_end === false) {
+        await this.mailService.send({
+          to: customerDetails.user_id.email,
+          subject: "Votre période d'essai se termine dans 3j",
+          template: {
+            name: 'trial-end-soon',
+            data: {
+              firstName: customerDetails.user_id.first_name,
+              daysOfTrial: subscriptionItem.days_of_trial,
+              period: period,
+              engagement: engagement,
+              pricePerPeriod: pricePerPeriod,
+            },
           },
-        },
-      })
+        })
 
-      // Send mail to admin
-      console.log('Send mail to admin')
-      await this.mailService.send({
-        to: 'admin@something.fr',
-        subject: 'Log Stripe: trial will end',
-        template: {
-          name: 'admin-warning',
-          data: {
-            eventName: 'customer.subscription.trial_will_end',
-            customerEmail: customerDetails.user_id.email,
-            action: "Vérifier que le mail de fin de période d'essai a bien été envoyé.",
-            invoiceId: '',
+        // Send mail to admin
+        console.log('Send mail to admin')
+        await this.mailService.send({
+          to: 'admin@something.fr',
+          subject: 'Log Stripe: trial will end',
+          template: {
+            name: 'admin-warning',
+            data: {
+              eventName: 'customer.subscription.trial_will_end',
+              customerEmail: customerDetails.user_id.email,
+              action: "Vérifier que le mail de fin de période d'essai a bien été envoyé.",
+              invoiceId: '',
+            },
           },
-        },
-      })
+        })
+      } else {
+        // Send mail to admin, the client will stop.
+        await this.mailService.send({
+          to: 'admin@something.fr',
+          subject: 'Log Stripe: trial will end - cancelled',
+          template: {
+            name: 'admin-warning',
+            data: {
+              eventName: 'customer.subscription.trial_will_end',
+              customerEmail: customerDetails.user_id.email,
+              action:
+                "Client cancelled subscription before the end of the trial. She shouldn't receive any email.",
+              invoiceId: '',
+            },
+          },
+        })
+      }
     } catch (error) {
       console.log(error)
       console.log('Exit: handleSubscriptionTrialWillEnd')
