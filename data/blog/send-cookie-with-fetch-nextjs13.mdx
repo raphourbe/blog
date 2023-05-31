@@ -1,0 +1,42 @@
+---
+title: 'Sending cookies with fetch in Next.js 13'
+date: '2023-05-31'
+lastmod: '2023-05-31'
+tags: ['next.js', 'fetch', 'next.js 13']
+draft: false
+summary: 'The new Next.js 13 uses fetch in server components and I had trouble sending cookies with it. Here is a solution.'
+authors: ['default']
+canonicalUrl: https://rphl.dev/blog/send-cookie-with-fetch-nextjs13
+---
+
+## Context
+
+I have a backend API built on Flask that uses Flask-login for the authentication. Flask-login gives you a session cookie to authenticate you. So when I need something from my backend, my request needs to send the session cookie Flask gave me.
+
+I wanted to do a fetch from a Server component, in the new /app folder, using Next.js version 13.4 here. However, using `credentials=true` in my fetch params does not work. So I had to find another solution.
+
+## Solution
+
+I found the solution on stackoverflow [here](https://stackoverflow.com/a/76280543), thanks to "Igor Danchenko". As mention in this blog description, I am against the multiple copy/pasted tutorial that always explain the same thing. But here, I had a really hard time finding this solution so I do a post about it.
+
+Here is the code from Igor:
+
+```jsx
+import { cookies } from 'next/headers'
+
+async function getData() {
+  const response = await fetch(process.env.API_ENDPOINT, {
+    headers: {
+      Cookie: cookies()
+        .getAll()
+        .map(({ name, value }) => `${name}=${value}`)
+        .join('; '),
+    },
+  })
+  return await response.json()
+}
+```
+
+You need to use the [cookies function from next](https://nextjs.org/docs/app/api-reference/functions/cookies). But what I did not know, is that you can pass a cookie in the fetch option using: `{headers:{Cookie: yourcookie}}`. Indeed, in the doc about Headers on Mozilla, Cookie is a [forbidden header name](https://developer.mozilla.org/en-US/docs/Glossary/Forbidden_header_name). And: _"A forbidden header name is the name of any HTTP header that cannot be modified programmatically"_...
+
+But apparently, you can still do it. If you have more information on the topic, I would be happy to read about it.
