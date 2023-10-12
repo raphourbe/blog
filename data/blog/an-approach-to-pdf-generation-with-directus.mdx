@@ -1,0 +1,394 @@
+---
+title: 'An approach to pdf generation with directus.'
+date: '2023-10-12'
+lastmod: '2023-10-12'
+tags: ['directus', 'pdf', 'puppeteer']
+draft: false
+summary: "Let's create a pdf generator using an endpoint extension."
+authors: ['default']
+canonicalUrl: https://rphl.dev/blog/an-approach-to-pdf-generation-with-directus
+---
+
+
+## Context
+
+I needed to generate PDF based on posts I write on Directus. The PDF needed to be designed properly using brand colors, etc. already implemented on a front. So I implemented a specefic page in my front that was already designed with CSS to be printed properly. I created a Flow to call an endpoint I designed that would generate the PDF of the post.
+
+The endpoint allows me to launch a script to generate a PDF using `puppeteer`, upload the file, and update my post so the file is linked to it.
+
+<div className="mb-4 rounded-lg bg-orange-100 px-4 pt-4 pb-2 text-orange-700 dark:bg-orange-200 dark:text-orange-800">
+  <p className="m-0 pb-0 text-lg font-medium">Information</p>
+  <p className="m-0 pt-0 text-lg">
+    This tutorial will not get you a PDF renderer inside the dashboard of directus. It aims to generate PDF from a web page you can access.
+  </p>
+</div>
+
+Before Directus version 10.6, the *Run Script* operation in Flows allowed us to use npm modules. Since the [new version](https://github.com/directus/directus/releases/tag/v10.6.0), is it not possible anymore due to the replacement of `vm2` by `isolated-vm`. 
+
+The build of an operation with puppeteer imported with `import puppeteer from "puppeteer"` just displays warnings:
+
+![Building warnings](/static/images/understanding-directus-bundles/BuildingWarnings.webp)
+
+I have decided to use an endpoint extension to leverage puppeteer and use a Webhook / Request URL operation in flow to call that endpoint. You might try going for a specific operation instead of an endpoint. 
+
+At the end of this tutorial, you should have a good how of you could generate pdf leveraging directus.
+
+<TOCInline toc={props.toc} asDisclosure toHeading={3} />
+<br />
+
+## How it should work
+
+After writing a post, puppeteer can access it on a page on my front designed to be printed. So the endpoint should allow me to launch a script that will print to PDF this page, upload the pdf into directus, and reference the file in the item page of the post.
+
+The url of the endpoint contains the elements that will target the specific post. For example, if my frontend url for a post is: https://rphl.dev/slug-of-the-post, the directus endpoint could be something like https://directus.rphl.dev/print-pdf/slug-of-the-post.
+
+The Flows will be launched from the items page of each post, and call the endpoint with the proper slug of each post.
+
+## Building the endpoint extension
+
+### Generate the endpoint extension folder
+
+This part is quite easy and well explained in the [official doc](https://docs.directus.io/extensions/creating-extensions.html).
+
+I named my endpoint `pdf-generator`. I installed `puppeteer` with npm at the root: /pdf-generator.
+
+### Adding security on the endpoint
+
+The script is launched when the url: "https://directus.rphl.dev/print-pdf/slug-of-the-post" is called via a GET.
+
+First it will check the rigth of the user calling the url. I use the `accountability` in the `request` object to check my user is an admin.  Then it should verify that the slug is valid. I get the slug from the `request` parameters, and use the `ItemService` to retrieve post with the same slug. The beginning of the code looks like this (whole code available at the end): 
+```js:index.js
+export  default (router, { services }) => {
+  const { ItemsService } = services;
+
+  router.get("/:slug", async (req, res) => {
+    // ONLY FOR ADMIN
+    if (!req.accountability.admin) return;
+
+    // retrieve post data
+    const postService = new ItemsService("hebdo", {
+      schema: req.schema,
+      accountability: req.accountability,
+    });
+    const posts = await postService
+      .readByQuery({
+        fields: ["id", "main_title", "slug"],
+        filter: { slug: { _eq: req.params["slug"] } },
+      })
+      .then((results) => results)
+      .catch((error) => {
+        console.log(error);
+        return "Error";
+      }); // carefull, returns an array
+
+    // if there is no post corresponding to the slug => stop
+    if (posts && posts.length == 0) return;
+  }
+}
+```
+
+### Calling puppeteer and generating the PDF
+Once the security is checked and there is a post to save in PDF, I use a function that will:
+
+1. start puppeteer
+2. make it go on my front
+3. log in
+4. go to the page where the post is designed to be printed
+5. save the pdf on my disk
+
+This is the part of the tutorial where you should adapt to your situation. My function looks like this:
+
+```js:index.js
+import puppeteer from "puppeteer";
+
+export default (router, { services }) => {
+	const FRONTURL = "something";
+	const { ItemsService } = services;
+	
+	function removeForbiddenCharacters(input) {
+		let forbiddenChars = ["/", " ?", "?", "&", "=", '"', "#"];
+
+		for (let char of forbiddenChars) {
+		  input = input.split(char).join("");
+		}
+		return input;
+	}
+
+	async function generate_pdf(dir, fileName, slug) {
+		// dir = directory of the folder where to save the pdf on your disk
+		// fileName = ... the file name
+		// slug = ... the slug :)
+		
+		const browser = await puppeteer.launch({
+		  headless: "new",
+		  args: ["--start-maximized"],
+		});
+		const page = await browser.newPage();
+
+	   // THIS IS THE PART YOU ADAPT
+	   // Here is the example from my script
+
+		// Connexion
+		await page.goto(FRONTURL);
+
+		// Set screen size
+		await page.setViewport({ width: 1980, height: 1080 });
+
+		// Type into search box to log in the FRONT
+		await new Promise((r) => setTimeout(r, 5000));
+		await page.type("#email", "EMAIL");
+		await page.type("#password", "SECRET");
+		await page.click("input[type=submit]");
+		await new Promise((r) => setTimeout(r, 5000));
+
+		// Go to publication
+		// I use a function to generate the url where my post is displayed on my front. 
+		const pub_url = generate_url(slug);
+		await page.goto(pub_url);
+		
+		await new Promise((r) => setTimeout(r, 5000));
+
+		const pdf = await page.pdf({
+		  path: dir + "\\" + fileName,
+		  format: "A4",
+		});
+
+		await new Promise((r) => setTimeout(r, 5000));
+		await browser.close();
+	}
+
+	router.get("/:slug", async (req, res) => {
+		// ... Security part
+		
+		const dir = "/home/somewhere";
+        const fileName = removeForbiddenCharacters(req.params["slug"]) + ".pdf";
+		await generate_pdf(dir, fileName, req.params["slug"]);
+	}
+}
+```
+
+As you can see, there are a few: `await new Promise((r) => setTimeout(r, 5000));`. They are necessary for puppeteer to wait for the page to be properly displayed in the browser. Add as many as you require.
+
+The `removeForbiddenCharacters` allows to make clean file names. I have stolen the function from the directus source code I believe... :)
+
+### Uploading the file
+
+Next step is to upload the file and retrieve its UUID. As mentioned in the [official documentation](https://docs.directus.io/reference/files.html#upload-a-file), you should use `FormData` and be careful of the order you use to append things to it.
+
+> Order Matters
+> 
+> Make sure to define the non-file properties for each file first. This ensures that the file metadata is associated with the correct file.
+
+Be also careful if you copy/paste the directus example to upload a file, they do not add a file name. So if you upload a file using the Blob function as they do you will end up having your file named "blob" by default. You have to leverage the [FormData](https://developer.mozilla.org/en-US/docs/Web/API/FormData/append#parameters).
+
+```js:index.js
+async function upload_pdf(mainTitle, fileName, dir) {
+    var formData = new FormData();
+    formData.append("title", mainTitle);
+	// If you want to upload inside a Directus virtual folder
+    formData.append("folder", directusFolder);
+    formData.append(
+      "file",
+      new Blob([fs.readFileSync(dir + "\\" + fileName)], {
+        type: "application/pdf",
+      }),
+      fileName
+    );
+	
+	const apiFileUrl = "http://directus.yourdomain.com/files";
+
+    const fetchResponse = await fetch(apiFileUrl, {
+      method: "POST",
+      headers: {
+        Authorization: bearerToken,
+      },
+      body: formData,
+    });
+    const fileResp = await fetchResponse.json();
+
+    await new Promise((r) => setTimeout(r, 15000));
+    return fileResp;
+}
+```
+
+The UUID is inside the fileResp which is a file object as mentioned in the [doc](https://docs.directus.io/reference/files.html#the-file-object).
+
+In my script, you see this line: `formData.append("folder", directusFolder);`. It is used to upload inside a directus virtual folder, as shown on the picture below. If you do not add this line, the files will be uploaded directly at the root of the File Library.
+
+![Virtual Folder](/static/images/understanding-directus-bundles/VirtualFolder.webp)
+
+### Updating my post file
+The easiest part. I have in the data structure of my post item the relational field [file](https://docs.directus.io/app/data-model/fields/relational.html#file). you should just update this field with the UUID retrieved from the upload response.
+
+```js:index.js
+const fileResp = await upload_pdf(posts[0].main_title, fileName, dir);
+
+await postService
+  .updateOne(posts[0].id, { file: fileResp.data.id })
+  .then((results) => results)
+  .catch((error) => {
+	return "Error";
+});
+```
+
+## Note from aside
+If you test this on local, please note that you need to add `IMPORT_IP_DENY_LIST=` inside the `.env` file of directus. Otherwise you will end up with error message.
+
+Also, if you want to try your endpoint, you cannot just enter its url in your browser. If you do so, even connected in the directus dashboard, the user will be considered as a random user. You need to call it from a Flow. But it is ok since it is how it is intended.
+
+## Building the Flow
+
+![Build PDF Flow](/static/images/understanding-directus-bundles/BuildingPDFFlow.webp)
+
+The flow is quite simple: it is triggered on the item page of the post. Then data is read using the ID of the post to recover the slug with the parameters as follow:
+
+![Read Data Flow](/static/images/understanding-directus-bundles/ReadData.webp)
+
+The url is created with a Run Script Flow:
+
+```js
+module.exports = async function(data) {
+	return "http://127.0.0.1:8055/pdf-generator/" + data.read_data.slug;
+}
+```
+
+Then I use the Request URL Flow with url `{{$last}}` to ping my endpoint and launch the PDF generation.
+
+
+## Full code
+
+```js:index
+import puppeteer from "puppeteer";
+import fs from "node:fs";
+
+export default (router, { services }) => {
+  const FRONTURL = "http://127.0.0.1:3000";
+  const apiFileUrl = "http://127.0.0.1:8055/files";
+  const directusFolder = "6de02465-cfc2-4ff9-a0bf-a4a9cba85";
+  const bearerToken = "Bearer 3zdzdTWpG345somehtingyPndzdzd80";
+
+  const { ItemsService } = services;
+
+  function removeForbiddenCharacters(input) {
+    let forbiddenChars = ["/", " ?", "?", "&", "=", '"', "#"];
+
+    for (let char of forbiddenChars) {
+      input = input.split(char).join("");
+    }
+    return input;
+  }
+
+  function generate_url(slug) {
+    const base_url = FRONTURL + "/pdf/hebdo/";
+    return base_url + slug;
+  }
+
+  async function generate_pdf(dir, fileName, slug) {
+    const browser = await puppeteer.launch({
+      headless: "new",
+      args: ["--start-maximized"],
+    });
+    const page = await browser.newPage();
+
+    // Connexion
+    await page.goto(FRONTURL + "/dashboard");
+
+    // Set screen size
+    await page.setViewport({ width: 1980, height: 1080 });
+
+    // Type into search box
+    await new Promise((r) => setTimeout(r, 5000));
+    await page.type("#email", "email");
+    await page.type("#password", "password");
+    await page.click("input[type=submit]");
+    await new Promise((r) => setTimeout(r, 5000));
+
+    // Go to publication
+    const pub_url = generate_url(slug);
+
+    await new Promise((r) => setTimeout(r, 5000));
+    await page.goto(pub_url);
+    await new Promise((r) => setTimeout(r, 5000));
+
+    const pdf = await page.pdf({
+      path: dir + "\\" + fileName,
+      format: "A4",
+    });
+
+    await new Promise((r) => setTimeout(r, 5000));
+    await browser.close();
+  }
+
+  async function upload_pdf(mainTitle, fileName, dir) {
+    var formData = new FormData();
+    formData.append("title", mainTitle);
+    formData.append("folder", directusFolder);
+    formData.append(
+      "file",
+      new Blob([fs.readFileSync(dir + "\\" + fileName)], {
+        type: "application/pdf",
+      }),
+      fileName
+    );
+
+    console.log("Sending the data");
+    const fetchResponse = await fetch(apiFileUrl, {
+      method: "POST",
+      headers: {
+        Authorization: bearerToken,
+      },
+      body: formData,
+    });
+    const fileResp = await fetchResponse.json();
+
+    await new Promise((r) => setTimeout(r, 15000));
+    return fileResp;
+  }
+
+  router.get("/:slug", async (req, res) => {
+    // ONLY FOR ADMIN
+    if (!req.accountability.admin) return;
+
+    // retrieve post data
+    const postService = new ItemsService("hebdo", {
+      schema: req.schema,
+      accountability: req.accountability,
+    });
+    const posts = await postService
+      .readByQuery({
+        fields: ["id", "main_title", "slug"],
+        filter: { slug: { _eq: req.params["slug"] } },
+      })
+      .then((results) => results)
+      .catch((error) => {
+        console.log(error);
+        return "Error";
+      }); // carefull, returns an array
+
+    // if there is no post corresponding to the slug => stop
+    if (posts && posts.length == 0) return;
+
+    const dir =
+      "/var/www/directus/publications";
+    const fileName = removeForbiddenCharacters(req.params["slug"]) + ".pdf";
+
+    await generate_pdf(dir, fileName, req.params["slug"]);
+
+    const fileResp = await upload_pdf(posts[0].main_title, fileName, dir);
+
+    // Wait for the PDF to be uploaded
+    await new Promise((r) => setTimeout(r, 5000));
+
+    await postService
+      .updateOne(posts[0].id, { file: fileResp.data.id })
+      .then((results) => results)
+      .catch((error) => {
+        return "Error";
+      });
+
+    // In .env add: IMPORT_IP_DENY_LIST= if you test in local
+    // carefull with the permission => test via the flow interface
+    res.send("Hello, World!");
+  });
+};
+```
