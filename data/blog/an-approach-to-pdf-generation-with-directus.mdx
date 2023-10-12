@@ -27,7 +27,7 @@ Before Directus version 10.6, the *Run Script* operation in Flows allowed us to 
 
 The build of an operation with puppeteer imported with `import puppeteer from "puppeteer"` just displays warnings:
 
-![Building warnings](/static/images/understanding-directus-bundles/BuildingWarnings.webp)
+![Building warnings](/static/images/an-approach-to-pdf-generation-with-directus/BuildingError.webp)
 
 I have decided to use an endpoint extension to leverage puppeteer and use a Webhook / Request URL operation in flow to call that endpoint. You might try going for a specific operation instead of an endpoint. 
 
@@ -213,9 +213,9 @@ async function upload_pdf(mainTitle, fileName, dir) {
 
 The UUID is inside the fileResp which is a file object as mentioned in the [doc](https://docs.directus.io/reference/files.html#the-file-object).
 
-In my script, you see this line: `formData.append("folder", directusFolder);`. It is used to upload inside a directus virtual folder, as shown on the picture below. If you do not add this line, the files will be uploaded directly at the root of the File Library.
+In my script, you see this line: `formData.append("folder", directusFolder);`. It is used to upload inside a directus virtual folder, as shown on the picture below. If you do not add this line, the files will be uploaded directly at the root of the File Library. The directus folder id is in your url.
 
-![Virtual Folder](/static/images/understanding-directus-bundles/VirtualFolder.webp)
+![Virtual Folder](/static/images/an-approach-to-pdf-generation-with-directus/VirtualFolder.webp)
 
 ### Updating my post file
 The easiest part. I have in the data structure of my post item the relational field [file](https://docs.directus.io/app/data-model/fields/relational.html#file). you should just update this field with the UUID retrieved from the upload response.
@@ -238,11 +238,11 @@ Also, if you want to try your endpoint, you cannot just enter its url in your br
 
 ## Building the Flow
 
-![Build PDF Flow](/static/images/understanding-directus-bundles/BuildingPDFFlow.webp)
+![Build PDF Flow](/static/images/an-approach-to-pdf-generation-with-directus/BuildingPDFFlow.webp)
 
 The flow is quite simple: it is triggered on the item page of the post. Then data is read using the ID of the post to recover the slug with the parameters as follow:
 
-![Read Data Flow](/static/images/understanding-directus-bundles/ReadData.webp)
+![Read Data Flow](/static/images/an-approach-to-pdf-generation-with-directus/ReadData.webp)
 
 The url is created with a Run Script Flow:
 
