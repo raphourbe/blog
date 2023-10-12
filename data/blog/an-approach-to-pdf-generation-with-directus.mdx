@@ -96,13 +96,15 @@ Once the security is checked and there is a post to save in PDF, I use a functio
 4. go to the page where the post is designed to be printed
 5. save the pdf on my disk
 
-This is the part of the tutorial where you should adapt to your situation. My function looks like this:
+This is the part of the tutorial where you should adapt to your situation.
+
+Also, please note that I use the `.env` file of directus to place some variables in it, like `const FRONTURL = env.DIRECTUS_VIRTUAL_FOLDER;`. My function looks like this:
 
 ```js:index.js
 import puppeteer from "puppeteer";
 
-export default (router, { services }) => {
-	const FRONTURL = "something";
+export default (router, { services, env }) => {
+	const FRONTURL = env.DIRECTUS_VIRTUAL_FOLDER;
 	const { ItemsService } = services;
 	
 	function removeForbiddenCharacters(input) {
@@ -195,6 +197,8 @@ async function upload_pdf(mainTitle, fileName, dir) {
       fileName
     );
 	
+	// in the full code example I get this from the .env file
+	// with the bearerToken. It should be like:
 	const apiFileUrl = "http://directus.yourdomain.com/files";
 
     const fetchResponse = await fetch(apiFileUrl, {
@@ -261,11 +265,11 @@ Then I use the Request URL Flow with url `{{$last}}` to ping my endpoint and lau
 import puppeteer from "puppeteer";
 import fs from "node:fs";
 
-export default (router, { services }) => {
-  const FRONTURL = "http://127.0.0.1:3000";
-  const apiFileUrl = "http://127.0.0.1:8055/files";
-  const directusFolder = "6de02465-cfc2-4ff9-a0bf-a4a9cba85";
-  const bearerToken = "Bearer 3zdzdTWpG345somehtingyPndzdzd80";
+export default (router, { services, env }) => {
+  const FRONTURL = env.DIRECTUS_VIRTUAL_FOLDER;
+  const apiFileUrl = env.API_FILES_URL;
+  const directusFolder = env.DIRECTUS_VIRTUAL_FOLDER;
+  const bearerToken = env.BEARER_TOKEN;
 
   const { ItemsService } = services;
 
