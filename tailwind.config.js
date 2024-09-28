@@ -27,6 +27,12 @@ module.exports = {
       colors: {
         primary: colors.teal,
         gray: colors.neutral,
+        pink: '#ec4899',
+      },
+      zIndex: {
+        60: '60',
+        70: '70',
+        80: '80',
       },
       typography: ({ theme }) => ({
         DEFAULT: {
@@ -36,7 +42,7 @@ module.exports = {
               '&:hover': {
                 color: `${theme('colors.primary.600')}`,
               },
-              code: { color: theme('colors.primary.400') },
+              code: { color: theme('colors.pink') },
             },
             'h1,h2': {
               fontWeight: '700',
@@ -46,7 +52,7 @@ module.exports = {
               fontWeight: '600',
             },
             code: {
-              color: theme('colors.pink.500'),
+              color: theme('colors.pink'),
             },
           },
         },

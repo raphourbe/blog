@@ -3,8 +3,8 @@
   "short_name": "",
   "icons": [
     {
-      "src": "/favicon.ico",
-      "sizes": "32x32",
+      "src": "/android-chrome-96x96.png",
+      "sizes": "96x96",
       "type": "image/png"
     }
   ],
