@@ -1,7 +1,7 @@
 ---
 title: 'Building a SaaS with Directus and Stripe: Part 1, design.'
 date: '2022-11-26'
-lastmod: '2022-12-12'
+lastmod: '2023-10-12'
 tags: ['directus', 'stripe', 'saas']
 draft: false
 summary: "I just released a SaaS product for my company, and I built it with Directus and leveraged Stripe Billing. Let's take a look at the design of the app."
@@ -10,6 +10,14 @@ canonicalUrl: https://rphl.dev/blog/building-saas-with-directus-and-stripe-part1
 ---
 
 ## Context
+
+<div className="mb-4 rounded-lg bg-orange-100 px-4 pt-4 pb-2 text-orange-700 dark:bg-orange-200 dark:text-orange-800">
+  <p className="m-0 pb-0 text-lg font-medium">Information</p>
+  <p className="m-0 pt-0 text-lg">
+    The "Creating a Stripe Customer with a Flow" in Part 3 of this tutorial does not work with Directus version 10.6 or higher.
+    Before Directus version 10.6, the *Run Script* operation in Flows allowed us to use npm modules. Since the [new version](https://github.com/directus/directus/releases/tag/v10.6.0), is it not possible anymore due to the replacement of `vm2` by `isolated-vm`. Hence, you cannot build the Stripe Customer as mentioned in this part.
+  </p>
+</div>
 
 I recently build for my company a new app, which is a SaaS. I used [Directus](https://directus.io) as my backend
 for handling users, roles and posts. I used [Stripe Billing](https://stripe.com/docs/billing) to handle the payments,
