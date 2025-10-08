@@ -10,8 +10,8 @@ I'll mostly post some tutorials to solve problems I had to resolve myself becaus
 
 # Tech behind this blog
 
-**Tailwind Nextjs Starter Blog** from [Timothy Lin](https://www.timlrx.com)
-[![GitHub Repo stars](https://img.shields.io/github/stars/timlrx/tailwind-nextjs-starter-blog?style=social)](https://GitHub.com/timlrx/tailwind-nextjs-starter-blog/stargazers/)
-[![GitHub forks](https://img.shields.io/github/forks/timlrx/tailwind-nextjs-starter-blog?style=social)](https://GitHub.com/timlrx/tailwind-nextjs-starter-blog/network/)
+My own personal [Odin](https://odin-lang.org/) project: YAB (Yet, Another Blogger), available [here](https://).
+
+It is highly inspired by **Tailwind Nextjs Starter Blog** from [Timothy Lin](https://www.timlrx.com), which is the framework I used for my blog before rewriting it. The blog design is Timothy's.
 
 **Licence: MIT**
