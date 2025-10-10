@@ -10,7 +10,7 @@ I'll mostly post some tutorials to solve problems I had to resolve myself becaus
 
 # Tech behind this blog
 
-My own personal [Odin](https://odin-lang.org/) project: YAB (Yet, Another Blogger), available [here](https://).
+My own personal [Odin](https://odin-lang.org/) project: YAB (Yet, Another Blogger), available [here](https://github.com/raphourbe/yab).
 
 It is highly inspired by **Tailwind Nextjs Starter Blog** from [Timothy Lin](https://www.timlrx.com), which is the framework I used for my blog before rewriting it. The blog design is Timothy's.
 
